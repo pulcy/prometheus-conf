@@ -27,8 +27,9 @@ import (
 )
 
 const (
-	projectName       = "prometheus-conf"
-	defaultConfigPath = "./prometheus.yml"
+	projectName             = "prometheus-conf"
+	defaultConfigPath       = "./prometheus.yml"
+	defaultNodeExporterPort = 9102
 )
 
 var (
@@ -55,6 +56,8 @@ func init() {
 	cmdMain.Flags().StringVar(&flags.ConfigPath, "config-path", defaultConfigPath, "Path of the generated config file")
 	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config ill be generated only once")
 	cmdMain.Flags().DurationVar(&flags.LoopDelay, "loop-delay", defaultLoopDelay, "Time to wait before rebuilding the config file")
+	cmdMain.Flags().StringVar(&flags.FleetURL, "fleet-url", "", "URL of fleet")
+	cmdMain.Flags().IntVar(&flags.NodeExporterPort, "node-exporter-port", defaultNodeExporterPort, "Port that node_exporters are listening on")
 }
 
 func main() {

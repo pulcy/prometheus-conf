@@ -26,6 +26,9 @@ type ServiceConfig struct {
 	ConfigPath string
 	Once       bool
 	LoopDelay  time.Duration
+
+	FleetURL         string
+	NodeExporterPort int
 }
 
 type ServiceDependencies struct {
@@ -77,7 +80,16 @@ func (s *Service) runOnce() error {
 	return nil
 }
 
+// createConfig builds he configuration file (in memory)
 func (s *Service) createConfig() (PrometheusConfig, error) {
 	config := PrometheusConfig{}
+
+	// Fleet
+	cfgs, err := s.createFleetNodes()
+	if err != nil {
+		return config, maskAny(err)
+	}
+	config.ScrapeConfigs = append(config.ScrapeConfigs, cfgs...)
+
 	return config, nil
 }

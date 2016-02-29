@@ -26,17 +26,18 @@ type GlobalConfig struct {
 }
 
 type ScrapeConfig struct {
-	JobName     string `yaml:"job_name"`
-	HonorLabels bool   `yaml:"honor_labels,omitempty"`
-	MetricsPath string `yaml:"metrics_path,omitempty"`
+	JobName      string        `yaml:"job_name"`
+	HonorLabels  bool          `yaml:"honor_labels,omitempty"`
+	MetricsPath  string        `yaml:"metrics_path,omitempty"`
+	TargetGroups []TargetGroup `yaml:"target_groups,omitempty"`
 }
 
-type TargetGroups struct {
+type TargetGroup struct {
 	Targets []string          `yaml:"targets,omitempty"`
 	Labels  map[string]string `yaml:"labels,omitempty"`
 }
 
-func (tg *TargetGroups) Label(name, value string) {
+func (tg *TargetGroup) Label(name, value string) {
 	if tg.Labels == nil {
 		tg.Labels = make(map[string]string)
 	}
