@@ -51,17 +51,20 @@ func (s *Service) createFleetNodes() ([]ScrapeConfig, error) {
 	}
 
 	// Build scrape config list
-	targetGroup := TargetGroup{}
-	targetGroup.Label("fleet", "true")
+	tgNode := TargetGroup{}
+	tgNode.Label("source", "node")
+	tgEtcd := TargetGroup{}
+	tgEtcd.Label("source", "etcd")
 	for _, m := range machines {
 		ip := m.PublicIP
 		s.Log.Debugf("found fleet machine %s", ip)
-		targetGroup.Targets = append(targetGroup.Targets, fmt.Sprintf("%s:%d", ip, s.NodeExporterPort))
+		tgNode.Targets = append(tgNode.Targets, fmt.Sprintf("%s:%d", ip, s.NodeExporterPort))
+		tgEtcd.Targets = append(tgEtcd.Targets, fmt.Sprintf("%s:2379", ip))
 	}
 
 	scrapeConfig := ScrapeConfig{
-		JobName:      "nodes",
-		TargetGroups: []TargetGroup{targetGroup},
+		JobName:      "node",
+		TargetGroups: []TargetGroup{tgNode, tgEtcd},
 	}
 	return []ScrapeConfig{scrapeConfig}, nil
 }
