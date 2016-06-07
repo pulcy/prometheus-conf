@@ -57,7 +57,7 @@ func init() {
 	logging.SetFormatter(logging.MustStringFormatter("[%{level:-5s}] %{message}"))
 	cmdMain.Flags().StringVar(&flags.logLevel, "log-level", defaultLogLevel, "Log level (debug|info|warning|error)")
 	cmdMain.Flags().StringVar(&flags.ConfigPath, "config-path", defaultConfigPath, "Path of the generated config file")
-	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config ill be generated only once")
+	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config will be generated only once")
 	cmdMain.Flags().DurationVar(&flags.LoopDelay, "loop-delay", defaultLoopDelay, "Time to wait before rebuilding the config file")
 	cmdMain.Flags().StringVar(&flags.FleetURL, "fleet-url", "", "URL of fleet")
 	cmdMain.Flags().IntVar(&flags.NodeExporterPort, "node-exporter-port", defaultNodeExporterPort, "Port that node_exporters are listening on")
