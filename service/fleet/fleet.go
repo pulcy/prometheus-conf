@@ -64,7 +64,7 @@ func (p *fleetPlugin) Setup(flagSet *pflag.FlagSet) {
 }
 
 // Start the plugin. Send a value on the given channel to trigger an update of the configuration.
-func (p *fleetPlugin) Start(config service.ServiceConfig, trigger chan struct{}) error {
+func (p *fleetPlugin) Start(config service.ServiceConfig, trigger chan string) error {
 	if err := util.SetLogLevel(p.FleetLogLevel, config.LogLevel, logName); err != nil {
 		return maskAny(err)
 	}

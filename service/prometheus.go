@@ -14,10 +14,15 @@
 
 package service
 
+import (
+	"sort"
+	"strings"
+)
+
 type PrometheusConfig struct {
-	Global        GlobalConfig   `yaml:"global"`
-	RuleFiles     []string       `yaml:"rule_files,omitempty"`
-	ScrapeConfigs []ScrapeConfig `yaml:"scrape_configs"`
+	Global        GlobalConfig     `yaml:"global"`
+	RuleFiles     []string         `yaml:"rule_files,omitempty"`
+	ScrapeConfigs ScrapeConfigList `yaml:"scrape_configs"`
 }
 
 type GlobalConfig struct {
@@ -26,15 +31,46 @@ type GlobalConfig struct {
 }
 
 type ScrapeConfig struct {
-	JobName      string        `yaml:"job_name"`
-	HonorLabels  bool          `yaml:"honor_labels,omitempty"`
-	MetricsPath  string        `yaml:"metrics_path,omitempty"`
-	TargetGroups []TargetGroup `yaml:"target_groups,omitempty"`
+	JobName      string          `yaml:"job_name"`
+	HonorLabels  bool            `yaml:"honor_labels,omitempty"`
+	MetricsPath  string          `yaml:"metrics_path,omitempty"`
+	TargetGroups TargetGroupList `yaml:"target_groups,omitempty"`
 }
+
+type ScrapeConfigList []ScrapeConfig
 
 type TargetGroup struct {
 	Targets []string          `yaml:"targets,omitempty"`
 	Labels  map[string]string `yaml:"labels,omitempty"`
+}
+
+type TargetGroupList []TargetGroup
+
+func (pc *PrometheusConfig) Sort() {
+	sort.Strings(pc.RuleFiles)
+	for _, sc := range pc.ScrapeConfigs {
+		sc.Sort()
+	}
+	sort.Sort(pc.ScrapeConfigs)
+}
+
+func (sc *ScrapeConfig) Sort() {
+	for _, tg := range sc.TargetGroups {
+		tg.Sort()
+	}
+	sort.Sort(sc.TargetGroups)
+}
+
+func (l ScrapeConfigList) Len() int {
+	return len(l)
+}
+
+func (l ScrapeConfigList) Less(i, j int) bool {
+	return l[i].JobName < l[j].JobName
+}
+
+func (l ScrapeConfigList) Swap(i, j int) {
+	l[i], l[j] = l[j], l[i]
 }
 
 func (tg *TargetGroup) Label(name, value string) {
@@ -42,4 +78,28 @@ func (tg *TargetGroup) Label(name, value string) {
 		tg.Labels = make(map[string]string)
 	}
 	tg.Labels[name] = value
+}
+
+func (tg *TargetGroup) Sort() {
+	sort.Strings(tg.Targets)
+}
+
+func (tg *TargetGroup) FullString() string {
+	s := strings.Join(tg.Targets, ",")
+	for k, v := range tg.Labels {
+		s = s + k + v
+	}
+	return s
+}
+
+func (l TargetGroupList) Len() int {
+	return len(l)
+}
+
+func (l TargetGroupList) Less(i, j int) bool {
+	return l[i].FullString() < l[j].FullString()
+}
+
+func (l TargetGroupList) Swap(i, j int) {
+	l[i], l[j] = l[j], l[i]
 }

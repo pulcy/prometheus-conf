@@ -54,7 +54,7 @@ func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
 
 // Run builds the config once of continuously
 func (s *Service) Run() error {
-	trigger := make(chan struct{})
+	trigger := make(chan string)
 	for _, p := range plugins {
 		if err := p.Start(s.ServiceConfig, trigger); err != nil {
 			return maskAny(err)
@@ -84,12 +84,12 @@ func (s *Service) Run() error {
 
 // catchTriggers increments an updates counter for every received trigger and at every loop interval.
 // This updates counter is used to debounce events and avoid updating the configuration to often.
-func (s *Service) catchTriggers(trigger chan struct{}) {
+func (s *Service) catchTriggers(trigger chan string) {
 	interval := time.NewTicker(s.LoopDelay)
 	for {
 		select {
-		case <-trigger:
-			s.Log.Debugf("trigger received")
+		case source := <-trigger:
+			s.Log.Debugf("trigger received from '%s'", source)
 			atomic.AddUint32(&s.updates, 1)
 		case <-interval.C:
 			s.Log.Debugf("loop interval")
@@ -134,6 +134,8 @@ func (s *Service) createConfig() (PrometheusConfig, error) {
 		}
 		config.ScrapeConfigs = append(config.ScrapeConfigs, cfgs...)
 	}
+
+	config.Sort()
 
 	return config, nil
 }

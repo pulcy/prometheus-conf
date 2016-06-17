@@ -24,7 +24,7 @@ type Plugin interface {
 
 	// Start the plugin. Send a value on the given channel to trigger an update of the configuration.
 	// Use a go-routine internally since this method is blocking.
-	Start(config ServiceConfig, trigger chan struct{}) error
+	Start(config ServiceConfig, trigger chan string) error
 
 	// CreateNodes creates all scrape configurations this plugin is aware of.
 	CreateNodes() ([]ScrapeConfig, error)

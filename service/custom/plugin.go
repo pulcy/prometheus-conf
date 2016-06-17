@@ -59,7 +59,7 @@ func (p *customPlugin) Setup(flagSet *pflag.FlagSet) {
 }
 
 // Start the plugin. Send a value on the given channel to trigger an update of the configuration.
-func (p *customPlugin) Start(config service.ServiceConfig, trigger chan struct{}) error {
+func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) error {
 	if err := util.SetLogLevel(p.CustomLogLevel, config.LogLevel, logName); err != nil {
 		return maskAny(err)
 	}
@@ -85,7 +85,7 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan struct{}
 			if err := p.backend.Watch(); err != nil {
 				p.log.Errorf("backend watch failed: %#v", err)
 			}
-			trigger <- struct{}{}
+			trigger <- "custom-backend"
 		}
 	}()
 
@@ -95,7 +95,7 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan struct{}
 			if err := p.registrator.Watch(); err != nil {
 				p.log.Errorf("registrator watch failed: %#v", err)
 			}
-			trigger <- struct{}{}
+			trigger <- "custom-registrator"
 		}
 	}()
 
