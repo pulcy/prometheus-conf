@@ -38,6 +38,10 @@ type Server struct {
 	cur       http.Handler
 }
 
+func (s *Server) GetListeners() []net.Listener {
+	return s.listeners
+}
+
 func (s *Server) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	s.cur.ServeHTTP(rw, req)
 }
@@ -48,7 +52,7 @@ func (s *Server) Serve() {
 		go func() {
 			err := http.Serve(l, s)
 			if err != nil {
-				log.Errorf("Failed serving HTTP on listener: %v", l.Addr())
+				log.Errorf("Failed serving HTTP on listener: addr: %v, err: %v", l.Addr(), err)
 			}
 		}()
 	}
@@ -57,7 +61,7 @@ func (s *Server) Serve() {
 // Available switches the Server's HTTP handler from a generic 503 Unavailable
 // response to the actual API. Once the provided channel is closed, the API is
 // torn back down and 503 responses are served.
-func (s *Server) Available(stop chan bool) {
+func (s *Server) Available(stop <-chan struct{}) {
 	s.cur = s.api
 	<-stop
 	s.cur = unavailable

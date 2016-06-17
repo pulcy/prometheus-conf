@@ -22,6 +22,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
+
+	"github.com/pborman/uuid"
 )
 
 var fleetctlBinPath string
@@ -96,12 +99,28 @@ type UnitState struct {
 	Machine     string
 }
 
+type UnitFileState struct {
+	Name         string
+	DesiredState string
+	State        string
+}
+
 func ParseUnitStates(units []string) (states []UnitState) {
 	for _, unit := range units {
-		cols := strings.SplitN(unit, "\t", 3)
+		cols := strings.Fields(unit)
 		if len(cols) == 3 {
 			machine := strings.SplitN(cols[2], "/", 2)[0]
 			states = append(states, UnitState{cols[0], cols[1], machine})
+		}
+	}
+	return states
+}
+
+func ParseUnitFileStates(units []string) (states []UnitFileState) {
+	for _, unit := range units {
+		cols := strings.Fields(unit)
+		if len(cols) == 3 {
+			states = append(states, UnitFileState{cols[0], cols[1], cols[2]})
 		}
 	}
 	return states
@@ -135,4 +154,62 @@ func TempUnit(contents string) (string, error) {
 	}
 
 	return svc, nil
+}
+
+func WaitForState(stateCheckFunc func() bool) (time.Duration, error) {
+	timeout := 15 * time.Second
+	alarm := time.After(timeout)
+	ticker := time.Tick(250 * time.Millisecond)
+	for {
+		select {
+		case <-alarm:
+			// Generic message. Callers can build more specific ones using the returned timeout value.
+			return timeout, fmt.Errorf("Failed to reach expected state within %v.", timeout)
+		case <-ticker:
+			if stateCheckFunc() {
+				return timeout, nil
+			}
+		}
+	}
+}
+
+func NewMachineID() string {
+	// drop the standard separators to match systemd
+	return strings.Replace(uuid.New(), "-", "", -1)
+}
+
+// CopyFile()
+func CopyFile(newFile, oldFile string) error {
+	input, err := ioutil.ReadFile(oldFile)
+	if err != nil {
+		return err
+	}
+	err = ioutil.WriteFile(newFile, []byte(input), 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// GenNewFleetService() is a helper for generating a temporary fleet service
+// that reads from oldFile, replaces oldVal with newVal, and stores the result
+// to newFile.
+func GenNewFleetService(newFile, oldFile, newVal, oldVal string) error {
+	input, err := ioutil.ReadFile(oldFile)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(input), "\n")
+
+	for i, line := range lines {
+		if strings.Contains(line, oldVal) {
+			lines[i] = strings.Replace(line, oldVal, newVal, len(oldVal))
+		}
+	}
+	output := strings.Join(lines, "\n")
+	err = ioutil.WriteFile(newFile, []byte(output), 0644)
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -22,10 +22,12 @@ import (
 	"github.com/coreos/fleet/job"
 )
 
-func doStopUnits(r commandTestResults, errchan chan error) {
-	exit := runStopUnit(r.units)
+func doStopUnits(t *testing.T, r commandTestResults, errchan chan error) {
+	sharedFlags.NoBlock = true
+	exit := runStopUnit(cmdStop, r.units)
 	if exit != r.expectedExit {
 		errchan <- fmt.Errorf("%s: expected exit code %d but received %d", r.description, r.expectedExit, exit)
+		return
 	}
 
 	real_units, err := findUnits(r.units)
@@ -65,23 +67,27 @@ func TestRunStopUnits(t *testing.T) {
 			[]string{"y1", "y2", "y3", "y4", "stop1", "stop2", "stop3", "stop4", "stop5", "y0"},
 			0,
 		},
+		{
+			"stop null input",
+			[]string{},
+			0,
+		},
 	}
 
-	sharedFlags.NoBlock = true
 	for _, r := range results {
 		var wg sync.WaitGroup
 		errchan := make(chan error)
 
-		cAPI = newFakeRegistryForCommands(unitPrefix, len(r.units))
+		cAPI = newFakeRegistryForCommands(unitPrefix, len(r.units), false)
 
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			doStopUnits(r, errchan)
+			doStopUnits(t, r, errchan)
 		}()
 		go func() {
 			defer wg.Done()
-			doStopUnits(r, errchan)
+			doStopUnits(t, r, errchan)
 		}()
 
 		go func() {

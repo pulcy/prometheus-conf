@@ -1,4 +1,4 @@
-// Copyright 2016 CoreOS, Inc.
+// Copyright 2016 The etcd Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -10,10 +10,12 @@
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
-// limitations under the License.package recipe
+// limitations under the License.
+
 package integration
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -25,22 +27,26 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
-	"github.com/coreos/etcd/Godeps/_workspace/src/google.golang.org/grpc"
+	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 
 	"github.com/coreos/etcd/client"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/etcdserver"
+	"github.com/coreos/etcd/etcdserver/api"
+	"github.com/coreos/etcd/etcdserver/api/v2http"
 	"github.com/coreos/etcd/etcdserver/api/v3rpc"
-	"github.com/coreos/etcd/etcdserver/etcdhttp"
+	pb "github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/pkg/testutil"
 	"github.com/coreos/etcd/pkg/transport"
 	"github.com/coreos/etcd/pkg/types"
 	"github.com/coreos/etcd/rafthttp"
+	"github.com/coreos/pkg/capnslog"
 )
 
 const (
@@ -54,7 +60,7 @@ var (
 
 	// integration test uses well-known ports to listen for each running member,
 	// which ensures restarted member could listen on specific port again.
-	nextListenPort int64 = 20000
+	nextListenPort int64 = 21000
 
 	testTLSInfo = transport.TLSInfo{
 		KeyFile:        "./fixtures/server.key.insecure",
@@ -62,20 +68,27 @@ var (
 		TrustedCAFile:  "./fixtures/ca.crt",
 		ClientCertAuth: true,
 	}
+
+	plog = capnslog.NewPackageLogger("github.com/coreos/etcd", "integration")
 )
 
 type ClusterConfig struct {
-	Size         int
-	PeerTLS      *transport.TLSInfo
-	ClientTLS    *transport.TLSInfo
-	DiscoveryURL string
-	UseV3        bool
-	UseGRPC      bool
+	Size              int
+	PeerTLS           *transport.TLSInfo
+	ClientTLS         *transport.TLSInfo
+	DiscoveryURL      string
+	UseGRPC           bool
+	QuotaBackendBytes int64
 }
 
 type cluster struct {
 	cfg     *ClusterConfig
 	Members []*member
+}
+
+func init() {
+	// manually enable v3 capability since we know the cluster members all support v3.
+	api.EnableCapability(api.V3rpcCapability)
 }
 
 func (c *cluster) fillClusterForMembers() error {
@@ -193,10 +206,14 @@ func (c *cluster) HTTPMembers() []client.Member {
 }
 
 func (c *cluster) mustNewMember(t *testing.T) *member {
-	name := c.name(rand.Int())
-	m := mustNewMember(t, name, c.cfg.PeerTLS, c.cfg.ClientTLS)
+	m := mustNewMember(t,
+		memberConfig{
+			name:              c.name(rand.Int()),
+			peerTLS:           c.cfg.PeerTLS,
+			clientTLS:         c.cfg.ClientTLS,
+			quotaBackendBytes: c.cfg.QuotaBackendBytes,
+		})
 	m.DiscoveryURL = c.cfg.DiscoveryURL
-	m.V3demo = c.cfg.UseV3
 	if c.cfg.UseGRPC {
 		if err := m.listenGRPC(); err != nil {
 			t.Fatal(err)
@@ -311,6 +328,8 @@ func (c *cluster) waitMembersMatch(t *testing.T, membs []client.Member) {
 	return
 }
 
+func (c *cluster) WaitLeader(t *testing.T) int { return c.waitLeader(t, c.Members) }
+
 func (c *cluster) waitLeader(t *testing.T, membs []*member) int {
 	possibleLead := make(map[uint64]bool)
 	var lead uint64
@@ -328,11 +347,11 @@ func (c *cluster) waitLeader(t *testing.T, membs []*member) int {
 			}
 			if lead != 0 && lead != m.s.Lead() {
 				lead = 0
+				time.Sleep(10 * tickDuration)
 				break
 			}
 			lead = m.s.Lead()
 		}
-		time.Sleep(10 * tickDuration)
 	}
 
 	for i, m := range membs {
@@ -412,19 +431,29 @@ type member struct {
 
 	grpcServer *grpc.Server
 	grpcAddr   string
+	grpcBridge *bridge
+}
+
+func (m *member) GRPCAddr() string { return m.grpcAddr }
+
+type memberConfig struct {
+	name              string
+	peerTLS           *transport.TLSInfo
+	clientTLS         *transport.TLSInfo
+	quotaBackendBytes int64
 }
 
 // mustNewMember return an inited member with the given name. If peerTLS is
 // set, it will use https scheme to communicate between peers.
-func mustNewMember(t *testing.T, name string, peerTLS *transport.TLSInfo, clientTLS *transport.TLSInfo) *member {
+func mustNewMember(t *testing.T, mcfg memberConfig) *member {
 	var err error
 	m := &member{}
 
 	peerScheme, clientScheme := "http", "http"
-	if peerTLS != nil {
+	if mcfg.peerTLS != nil {
 		peerScheme = "https"
 	}
-	if clientTLS != nil {
+	if mcfg.clientTLS != nil {
 		clientScheme = "https"
 	}
 
@@ -434,7 +463,7 @@ func mustNewMember(t *testing.T, name string, peerTLS *transport.TLSInfo, client
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.PeerTLSInfo = peerTLS
+	m.PeerTLSInfo = mcfg.peerTLS
 
 	cln := newLocalListener(t)
 	m.ClientListeners = []net.Listener{cln}
@@ -442,15 +471,15 @@ func mustNewMember(t *testing.T, name string, peerTLS *transport.TLSInfo, client
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.ClientTLSInfo = clientTLS
+	m.ClientTLSInfo = mcfg.clientTLS
 
-	m.Name = name
+	m.Name = mcfg.name
 
 	m.DataDir, err = ioutil.TempDir(os.TempDir(), "etcd")
 	if err != nil {
 		t.Fatal(err)
 	}
-	clusterStr := fmt.Sprintf("%s=%s://%s", name, peerScheme, pln.Addr().String())
+	clusterStr := fmt.Sprintf("%s=%s://%s", mcfg.name, peerScheme, pln.Addr().String())
 	m.InitialPeerURLsMap, err = types.NewURLsMap(clusterStr)
 	if err != nil {
 		t.Fatal(err)
@@ -463,14 +492,12 @@ func mustNewMember(t *testing.T, name string, peerTLS *transport.TLSInfo, client
 	}
 	m.ElectionTicks = electionTicks
 	m.TickMs = uint(tickDuration / time.Millisecond)
+	m.QuotaBackendBytes = mcfg.quotaBackendBytes
 	return m
 }
 
 // listenGRPC starts a grpc server over a unix domain socket on the member
 func (m *member) listenGRPC() error {
-	if m.V3demo == false {
-		return fmt.Errorf("starting grpc server without v3 configured")
-	}
 	// prefix with localhost so cert has right domain
 	m.grpcAddr = "localhost:" + m.Name + ".sock"
 	if err := os.RemoveAll(m.grpcAddr); err != nil {
@@ -480,20 +507,35 @@ func (m *member) listenGRPC() error {
 	if err != nil {
 		return fmt.Errorf("listen failed on grpc socket %s (%v)", m.grpcAddr, err)
 	}
-	m.grpcAddr = "unix://" + m.grpcAddr
+	m.grpcBridge, err = newBridge(m.grpcAddr)
+	if err != nil {
+		l.Close()
+		return err
+	}
+	m.grpcAddr = m.grpcBridge.URL()
 	m.grpcListener = l
 	return nil
 }
+
+func (m *member) DropConnections() { m.grpcBridge.Reset() }
 
 // NewClientV3 creates a new grpc client connection to the member
 func NewClientV3(m *member) (*clientv3.Client, error) {
 	if m.grpcAddr == "" {
 		return nil, fmt.Errorf("member not configured for grpc")
 	}
+
 	cfg := clientv3.Config{
 		Endpoints:   []string{m.grpcAddr},
 		DialTimeout: 5 * time.Second,
-		TLS:         m.ClientTLSInfo,
+	}
+
+	if m.ClientTLSInfo != nil {
+		tls, err := m.ClientTLSInfo.ClientConfig()
+		if err != nil {
+			return nil, err
+		}
+		cfg.TLS = tls
 	}
 	return clientv3.New(cfg)
 }
@@ -533,6 +575,7 @@ func (m *member) Clone(t *testing.T) *member {
 // Launch starts a member based on ServerConfig, PeerListeners
 // and ClientListeners.
 func (m *member) Launch() error {
+	plog.Printf("launching %s (%s)", m.Name, m.grpcAddr)
 	var err error
 	if m.s, err = etcdserver.NewServer(&m.ServerConfig); err != nil {
 		return fmt.Errorf("failed to initialize the etcd server: %v", err)
@@ -540,7 +583,7 @@ func (m *member) Launch() error {
 	m.s.SyncTicker = time.Tick(500 * time.Millisecond)
 	m.s.Start()
 
-	m.raftHandler = &testutil.PauseableHandler{Next: etcdhttp.NewPeerHandler(m.s)}
+	m.raftHandler = &testutil.PauseableHandler{Next: v2http.NewPeerHandler(m.s)}
 
 	for _, ln := range m.PeerListeners {
 		hs := &httptest.Server{
@@ -561,7 +604,7 @@ func (m *member) Launch() error {
 	for _, ln := range m.ClientListeners {
 		hs := &httptest.Server{
 			Listener: ln,
-			Config:   &http.Server{Handler: etcdhttp.NewClientHandler(m.s, m.ServerConfig.ReqTimeout())},
+			Config:   &http.Server{Handler: v2http.NewClientHandler(m.s, m.ServerConfig.ReqTimeout())},
 		}
 		if m.ClientTLSInfo == nil {
 			hs.Start()
@@ -575,9 +618,20 @@ func (m *member) Launch() error {
 		m.hss = append(m.hss, hs)
 	}
 	if m.grpcListener != nil {
-		m.grpcServer, err = v3rpc.Server(m.s, m.ClientTLSInfo)
+		var (
+			tlscfg *tls.Config
+		)
+		if m.ClientTLSInfo != nil && !m.ClientTLSInfo.Empty() {
+			tlscfg, err = m.ClientTLSInfo.ServerConfig()
+			if err != nil {
+				return err
+			}
+		}
+		m.grpcServer = v3rpc.Server(m.s, tlscfg)
 		go m.grpcServer.Serve(m.grpcListener)
 	}
+
+	plog.Printf("launched %s (%s)", m.Name, m.grpcAddr)
 	return nil
 }
 
@@ -613,6 +667,10 @@ func (m *member) Resume() {
 
 // Close stops the member's etcdserver and closes its connections
 func (m *member) Close() {
+	if m.grpcBridge != nil {
+		m.grpcBridge.Close()
+		m.grpcBridge = nil
+	}
 	if m.grpcServer != nil {
 		m.grpcServer.Stop()
 		m.grpcServer = nil
@@ -626,8 +684,10 @@ func (m *member) Close() {
 
 // Stop stops the member, but the data dir of the member is preserved.
 func (m *member) Stop(t *testing.T) {
+	plog.Printf("stopping %s (%s)", m.Name, m.grpcAddr)
 	m.Close()
 	m.hss = nil
+	plog.Printf("stopped %s (%s)", m.Name, m.grpcAddr)
 }
 
 // StopNotify unblocks when a member stop completes
@@ -637,6 +697,7 @@ func (m *member) StopNotify() <-chan struct{} {
 
 // Restart starts the member using the preserved data dir.
 func (m *member) Restart(t *testing.T) error {
+	plog.Printf("restarting %s (%s)", m.Name, m.grpcAddr)
 	newPeerListeners := make([]net.Listener, 0)
 	for _, ln := range m.PeerListeners {
 		newPeerListeners = append(newPeerListeners, newListenerWithAddr(t, ln.Addr().String()))
@@ -654,15 +715,19 @@ func (m *member) Restart(t *testing.T) error {
 		}
 	}
 
-	return m.Launch()
+	err := m.Launch()
+	plog.Printf("restarted %s (%s)", m.Name, m.grpcAddr)
+	return err
 }
 
 // Terminate stops the member and removes the data dir.
 func (m *member) Terminate(t *testing.T) {
+	plog.Printf("terminating %s (%s)", m.Name, m.grpcAddr)
 	m.Close()
 	if err := os.RemoveAll(m.ServerConfig.DataDir); err != nil {
 		t.Fatal(err)
 	}
+	plog.Printf("terminated %s (%s)", m.Name, m.grpcAddr)
 }
 
 func mustNewHTTPClient(t *testing.T, eps []string, tls *transport.TLSInfo) client.Client {
@@ -697,32 +762,47 @@ func (p SortableMemberSliceByPeerURLs) Swap(i, j int) { p[i], p[j] = p[j], p[i] 
 
 type ClusterV3 struct {
 	*cluster
+
+	mu      sync.Mutex
 	clients []*clientv3.Client
 }
 
 // NewClusterV3 returns a launched cluster with a grpc client connection
 // for each cluster member.
 func NewClusterV3(t *testing.T, cfg *ClusterConfig) *ClusterV3 {
-	cfg.UseV3 = true
 	cfg.UseGRPC = true
-	clus := &ClusterV3{cluster: NewClusterByConfig(t, cfg)}
+	clus := &ClusterV3{
+		cluster: NewClusterByConfig(t, cfg),
+	}
 	for _, m := range clus.Members {
 		client, err := NewClientV3(m)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("cannot create client: %v", err)
 		}
 		clus.clients = append(clus.clients, client)
 	}
 	clus.Launch(t)
+
 	return clus
 }
 
+func (c *ClusterV3) TakeClient(idx int) {
+	c.mu.Lock()
+	c.clients[idx] = nil
+	c.mu.Unlock()
+}
+
 func (c *ClusterV3) Terminate(t *testing.T) {
+	c.mu.Lock()
 	for _, client := range c.clients {
+		if client == nil {
+			continue
+		}
 		if err := client.Close(); err != nil {
 			t.Error(err)
 		}
 	}
+	c.mu.Unlock()
 	c.cluster.Terminate(t)
 }
 
@@ -732,4 +812,27 @@ func (c *ClusterV3) RandClient() *clientv3.Client {
 
 func (c *ClusterV3) Client(i int) *clientv3.Client {
 	return c.clients[i]
+}
+
+type grpcAPI struct {
+	// Cluster is the cluster API for the client's connection.
+	Cluster pb.ClusterClient
+	// KV is the keyvalue API for the client's connection.
+	KV pb.KVClient
+	// Lease is the lease API for the client's connection.
+	Lease pb.LeaseClient
+	// Watch is the watch API for the client's connection.
+	Watch pb.WatchClient
+	// Maintenance is the maintenance API for the client's connection.
+	Maintenance pb.MaintenanceClient
+}
+
+func toGRPC(c *clientv3.Client) grpcAPI {
+	return grpcAPI{
+		pb.NewClusterClient(c.ActiveConnection()),
+		pb.NewKVClient(c.ActiveConnection()),
+		pb.NewLeaseClient(c.ActiveConnection()),
+		pb.NewWatchClient(c.ActiveConnection()),
+		pb.NewMaintenanceClient(c.ActiveConnection()),
+	}
 }

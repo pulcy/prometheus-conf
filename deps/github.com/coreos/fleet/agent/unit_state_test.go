@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/jonboulle/clockwork"
+	"github.com/jonboulle/clockwork"
 
 	"github.com/coreos/fleet/machine"
 	"github.com/coreos/fleet/registry"
@@ -320,7 +320,7 @@ func TestUnitStatePublisherRunTiming(t *testing.T) {
 	}
 
 	bc := make(chan *unit.UnitStateHeartbeat)
-	sc := make(chan bool)
+	sc := make(chan struct{})
 	go func() {
 		usp.Run(bc, sc)
 	}()
@@ -466,7 +466,7 @@ func TestUnitStatePublisherRunQueuing(t *testing.T) {
 		clock:           clockwork.NewFakeClock(),
 	}
 	bc := make(chan *unit.UnitStateHeartbeat)
-	sc := make(chan bool)
+	sc := make(chan struct{})
 	go func() {
 		usp.Run(bc, sc)
 	}()
@@ -599,7 +599,7 @@ func TestUnitStatePublisherRunWithDelays(t *testing.T) {
 	}
 
 	bc := make(chan *unit.UnitStateHeartbeat)
-	sc := make(chan bool)
+	sc := make(chan struct{})
 
 	wgs.Add(numPublishers)
 	wgf.Add(numPublishers)

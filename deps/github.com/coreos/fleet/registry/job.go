@@ -20,7 +20,8 @@ import (
 	"path"
 	"sort"
 
-	etcd "github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/etcd/client"
+	etcd "github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 
 	"github.com/coreos/fleet/job"
 	"github.com/coreos/fleet/log"
@@ -38,7 +39,7 @@ func (r *EtcdRegistry) Schedule() ([]job.ScheduledUnit, error) {
 		Sort:      true,
 		Recursive: true,
 	}
-	res, err := r.kAPI.Get(r.ctx(), key, opts)
+	res, err := r.kAPI.Get(context.Background(), key, opts)
 	if err != nil {
 		if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 			err = nil
@@ -90,10 +91,11 @@ func (r *EtcdRegistry) Schedule() ([]job.ScheduledUnit, error) {
 func (r *EtcdRegistry) Units() ([]job.Unit, error) {
 	key := r.prefixed(jobPrefix)
 	opts := &etcd.GetOptions{
+		// We need Job Units to be sorted
 		Sort:      true,
 		Recursive: true,
 	}
-	res, err := r.kAPI.Get(r.ctx(), key, opts)
+	res, err := r.kAPI.Get(context.Background(), key, opts)
 	if err != nil {
 		if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 			err = nil
@@ -117,7 +119,7 @@ func (r *EtcdRegistry) Units() ([]job.Unit, error) {
 		return unit
 	}
 
-	uMap := make(map[string]*job.Unit)
+	units := make([]job.Unit, 0)
 	for _, dir := range res.Node.Nodes {
 		u, err := r.dirToUnit(dir, unitHashLookupFunc)
 		if err != nil {
@@ -127,18 +129,8 @@ func (r *EtcdRegistry) Units() ([]job.Unit, error) {
 		if u == nil {
 			continue
 		}
-		uMap[u.Name] = u
-	}
 
-	var sortable sort.StringSlice
-	for name, _ := range uMap {
-		sortable = append(sortable, name)
-	}
-	sortable.Sort()
-
-	units := make([]job.Unit, 0, len(sortable))
-	for _, name := range sortable {
-		units = append(units, *uMap[name])
+		units = append(units, *u)
 	}
 
 	return units, nil
@@ -151,7 +143,7 @@ func (r *EtcdRegistry) Unit(name string) (*job.Unit, error) {
 	opts := &etcd.GetOptions{
 		Recursive: true,
 	}
-	res, err := r.kAPI.Get(r.ctx(), key, opts)
+	res, err := r.kAPI.Get(context.Background(), key, opts)
 	if err != nil {
 		if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 			err = nil
@@ -201,7 +193,7 @@ func (r *EtcdRegistry) ScheduledUnit(name string) (*job.ScheduledUnit, error) {
 	opts := &etcd.GetOptions{
 		Recursive: true,
 	}
-	res, err := r.kAPI.Get(r.ctx(), key, opts)
+	res, err := r.kAPI.Get(context.Background(), key, opts)
 	if err != nil {
 		if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 			err = nil
@@ -233,7 +225,7 @@ func (r *EtcdRegistry) UnscheduleUnit(name, machID string) error {
 	opts := &etcd.DeleteOptions{
 		PrevValue: machID,
 	}
-	_, err := r.kAPI.Delete(r.ctx(), key, opts)
+	_, err := r.kAPI.Delete(context.Background(), key, opts)
 	if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 		err = nil
 	}
@@ -306,7 +298,7 @@ func (r *EtcdRegistry) DestroyUnit(name string) error {
 	opts := &etcd.DeleteOptions{
 		Recursive: true,
 	}
-	_, err := r.kAPI.Delete(r.ctx(), key, opts)
+	_, err := r.kAPI.Delete(context.Background(), key, opts)
 	if err != nil {
 		if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 			err = errors.New("job does not exist")
@@ -335,14 +327,14 @@ func (r *EtcdRegistry) CreateUnit(u *job.Unit) (err error) {
 	}
 
 	opts := &etcd.SetOptions{
-		PrevExist: etcd.PrevNoExist,
+		// Since we support replacing units, just ignore previous
+		// job keys if they exist, this allows us to update the
+		// job object key with a new unit.
+		PrevExist: etcd.PrevIgnore,
 	}
 	key := r.prefixed(jobPrefix, u.Name, "object")
-	_, err = r.kAPI.Set(r.ctx(), key, val, opts)
+	_, err = r.kAPI.Set(context.Background(), key, val, opts)
 	if err != nil {
-		if isEtcdError(err, etcd.ErrorCodeNodeExist) {
-			err = errors.New("job already exists")
-		}
 		return
 	}
 
@@ -351,7 +343,7 @@ func (r *EtcdRegistry) CreateUnit(u *job.Unit) (err error) {
 
 func (r *EtcdRegistry) SetUnitTargetState(name string, state job.JobState) error {
 	key := r.jobTargetStatePath(name)
-	_, err := r.kAPI.Set(r.ctx(), key, string(state), nil)
+	_, err := r.kAPI.Set(context.Background(), key, string(state), nil)
 	return err
 }
 
@@ -360,7 +352,7 @@ func (r *EtcdRegistry) ScheduleUnit(name string, machID string) error {
 	opts := &etcd.SetOptions{
 		PrevExist: etcd.PrevNoExist,
 	}
-	_, err := r.kAPI.Set(r.ctx(), key, machID, opts)
+	_, err := r.kAPI.Set(context.Background(), key, machID, opts)
 	return err
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2016 CoreOS, Inc.
+// Copyright 2016 The etcd Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/coreos/etcd/clientv3"
+	"golang.org/x/net/context"
 )
 
 func ExampleCluster_memberList() {
@@ -32,34 +32,12 @@ func ExampleCluster_memberList() {
 	}
 	defer cli.Close()
 
-	capi := clientv3.NewCluster(cli)
-
-	resp, err := capi.MemberList(context.Background())
+	resp, err := cli.MemberList(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("members:", len(resp.Members))
-	// members: 3
-}
-
-func ExampleCluster_memberLeader() {
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   endpoints,
-		DialTimeout: dialTimeout,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer cli.Close()
-
-	capi := clientv3.NewCluster(cli)
-
-	resp, err := capi.MemberLeader(context.Background())
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("leader:", resp.Name)
-	// leader: infra1
+	// Output: members: 3
 }
 
 func ExampleCluster_memberAdd() {
@@ -72,10 +50,8 @@ func ExampleCluster_memberAdd() {
 	}
 	defer cli.Close()
 
-	capi := clientv3.NewCluster(cli)
-
 	peerURLs := endpoints[2:]
-	mresp, err := capi.MemberAdd(context.Background(), peerURLs)
+	mresp, err := cli.MemberAdd(context.Background(), peerURLs)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -93,14 +69,12 @@ func ExampleCluster_memberRemove() {
 	}
 	defer cli.Close()
 
-	capi := clientv3.NewCluster(cli)
-
-	resp, err := capi.MemberList(context.Background())
+	resp, err := cli.MemberList(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = capi.MemberRemove(context.Background(), resp.Members[0].ID)
+	_, err = cli.MemberRemove(context.Background(), resp.Members[0].ID)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -116,15 +90,13 @@ func ExampleCluster_memberUpdate() {
 	}
 	defer cli.Close()
 
-	capi := clientv3.NewCluster(cli)
-
-	resp, err := capi.MemberList(context.Background())
+	resp, err := cli.MemberList(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	peerURLs := []string{"http://localhost:12378"}
-	_, err = capi.MemberUpdate(context.Background(), resp.Members[0].ID, peerURLs)
+	peerURLs := []string{"http://localhost:12380"}
+	_, err = cli.MemberUpdate(context.Background(), resp.Members[0].ID, peerURLs)
 	if err != nil {
 		log.Fatal(err)
 	}

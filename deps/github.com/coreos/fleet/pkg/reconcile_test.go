@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/jonboulle/clockwork"
+	"github.com/jonboulle/clockwork"
 )
 
 type fakeEventStream struct {
@@ -54,11 +54,11 @@ func TestPeriodicReconcilerRun(t *testing.T) {
 		clock:   fclock,
 	}
 	// launch the PeriodicReconciler in the background
-	prDone := make(chan bool)
-	stop := make(chan bool)
+	prDone := make(chan struct{})
+	stop := make(chan struct{})
 	go func() {
 		pr.Run(stop)
-		prDone <- true
+		close(prDone)
 	}()
 	// reconcile should have occurred once at start-up
 	select {

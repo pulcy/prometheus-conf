@@ -10,6 +10,23 @@ Since the tests utilize [`systemd-nspawn`][systemd-nspawn], this needs to be inv
 
 If the tests are aborted partway through, it's currently possible for them to leave residual state as a result of the `systemd-nspawn` operations. This can be cleaned up using the `clean.sh` script.
 
+### Using go flags in functional tests
+
+`fleet/functional` scripts forwards all arguments directly to the `go` binary. This allows you to pass `-run regexp` argument to the `./test` script and run specific test functions. The example below shows how to run only `TestSchedule*` test functions:
+
+```sh
+$ sudo fleet/functional/test -run TestSchedule*
+```
+
+The test functions list could be printed using `grep` command:
+
+```sh
+$ cd fleet/functional
+$ grep -r 'func Test' .
+```
+
+You can find a detailed description of the available test flags in the [Go documentation][golang-test-flags].
+
 ### Run tests in Vagrant
 
 The recommended way to run the tests is to use the provided Vagrantfile, which will set up a single CoreOS instance with a one-member etcd cluster (configuration is applied using `user-data` [Cloud-Config][cloud-config] file located in this directory).
@@ -23,7 +40,19 @@ $ ./run-in-vagrant
 
 Vagrant's provision step includes go binaries download using `functional/provision/install_go.sh` script.
 
-### Run tests inside other CoreOS platforms (QEMU/BareMetal/libvirt/etc)
+### Run tests in QEMU
+
+If you don't want to use Vagrant or VirtualBox, you can run tests inside official CoreOS QEMU image. You have to make sure QEMU is installed on your system.
+
+```sh
+$ git clone https://github.com/coreos/fleet
+$ cd fleet/functional
+$ ./run-in-qemu
+```
+
+If you get `Could not access KVM kernel module: Permission denied` error message, please make sure your CPU supports hardware-assisted virtualization and try to run the script using `sudo`.
+
+### Run tests inside other CoreOS platforms (BareMetal/EC2/GCE/libvirt/etc)
 
 It's also possible to run the tests on CoreOS on other platforms. The following commands should be run *inside* the CoreOS instance.
 
@@ -65,7 +94,7 @@ sudo dpkg -i vagrant_1.8.1_x86_64.deb
 echo "deb http://download.virtualbox.org/virtualbox/debian $(lsb_release -sc) contrib" | sudo tee /etc/apt/sources.list.d/virtualbox.list
 wget -q https://www.virtualbox.org/download/oracle_vbox.asc -O- | sudo apt-key add -
 sudo apt-get update
-sudo apt-get install -y build-essential dkms
+sudo apt-get install -y build-essential linux-headers-`uname -r` dkms
 sudo apt-get install -y VirtualBox-5.0
 #Previous VirtualBox (if you have problems with nested virtualization, more info here: https://www.virtualbox.org/ticket/14965)
 #sudo apt-get install -y VirtualBox-4.3
@@ -96,7 +125,8 @@ sudo yum install -y VirtualBox-5.0
 #sudo yum install -y VirtualBox-4.3
 ```
 
-[test-in-vagrant]: #run-tests-in-vagrant
-[configure-vagrant]: #configure-host-environment-to-run-vagrant
-[systemd-nspawn]: https://www.freedesktop.org/software/systemd/man/systemd-nspawn.html
 [cloud-config]: https://github.com/coreos/coreos-cloudinit/blob/master/Documentation/cloud-config.md
+[configure-vagrant]: #configure-host-environment-to-run-vagrant
+[golang-test-flags]: https://golang.org/cmd/go/#hdr-Description_of_testing_flags
+[systemd-nspawn]: https://www.freedesktop.org/software/systemd/man/systemd-nspawn.html
+[test-in-vagrant]: #run-tests-in-vagrant

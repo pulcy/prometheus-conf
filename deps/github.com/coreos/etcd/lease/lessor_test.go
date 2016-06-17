@@ -1,4 +1,4 @@
-// Copyright 2015 CoreOS, Inc.
+// Copyright 2015 The etcd Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coreos/etcd/storage/backend"
+	"github.com/coreos/etcd/mvcc/backend"
 )
 
 // TestLessorGrant ensures Lessor can grant wanted lease.
@@ -34,7 +34,7 @@ func TestLessorGrant(t *testing.T) {
 	defer be.Close()
 
 	le := newLessor(be)
-	le.Promote()
+	le.Promote(0)
 
 	l, err := le.Grant(1, 1)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestLessorRenew(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	le := newLessor(be)
-	le.Promote()
+	le.Promote(0)
 
 	l, err := le.Grant(1, 5)
 	if err != nil {

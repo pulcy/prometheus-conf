@@ -20,9 +20,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/rakyll/globalconf"
+	"github.com/rakyll/globalconf"
 
 	"github.com/coreos/fleet/agent"
 	"github.com/coreos/fleet/config"
@@ -98,14 +99,19 @@ func main() {
 	}
 
 	log.Debugf("Creating Server")
-	srv, err := server.New(*cfg)
+	srv, err := server.New(*cfg, nil)
 	if err != nil {
 		log.Fatalf("Failed creating Server: %v", err.Error())
 	}
 	srv.Run()
 
+	srvMutex := sync.Mutex{}
+
 	reconfigure := func() {
 		log.Infof("Reloading configuration from %s", *cfgPath)
+
+		srvMutex.Lock()
+		defer srvMutex.Unlock()
 
 		cfg, err := getConfig(cfgset, *cfgPath)
 		if err != nil {
@@ -113,24 +119,40 @@ func main() {
 		}
 
 		log.Infof("Restarting server components")
-		srv.Stop()
+		srv.SetReconfigServer(true)
 
-		srv, err = server.New(*cfg)
+		// Get Server.listeners[] to keep it for a new server,
+		// before killing the old server.
+		oldListeners := srv.GetApiServerListeners()
+
+		srv.Kill()
+
+		// The new server takes the original listeners.
+		srv, err = server.New(*cfg, oldListeners)
 		if err != nil {
 			log.Fatalf(err.Error())
 		}
+
 		srv.Run()
+		srv.SetReconfigServer(false)
 	}
 
 	shutdown := func() {
 		log.Infof("Gracefully shutting down")
-		srv.Stop()
+
+		srvMutex.Lock()
+		defer srvMutex.Unlock()
+
+		srv.Kill()
 		srv.Purge()
 		os.Exit(0)
 	}
 
 	writeState := func() {
 		log.Infof("Dumping server state")
+
+		srvMutex.Lock()
+		defer srvMutex.Unlock()
 
 		encoded, err := json.Marshal(srv)
 		if err != nil {

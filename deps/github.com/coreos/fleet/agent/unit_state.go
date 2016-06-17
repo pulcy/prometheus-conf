@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/jonboulle/clockwork"
+	"github.com/jonboulle/clockwork"
 
 	"github.com/coreos/fleet/log"
 	"github.com/coreos/fleet/machine"
@@ -70,7 +70,7 @@ type UnitStatePublisher struct {
 // Run caches all of the heartbeat objects from the provided channel, publishing
 // them to the Registry every 5s. Heartbeat objects are also published as they
 // are received on the channel.
-func (p *UnitStatePublisher) Run(beatchan <-chan *unit.UnitStateHeartbeat, stop chan bool) {
+func (p *UnitStatePublisher) Run(beatchan <-chan *unit.UnitStateHeartbeat, stop <-chan struct{}) {
 	go func() {
 		for {
 			select {

@@ -20,10 +20,11 @@ import (
 	"testing"
 )
 
-func doDestroyUnits(r commandTestResults, errchan chan error) {
-	exit := runDestroyUnits(r.units)
+func doDestroyUnits(t *testing.T, r commandTestResults, errchan chan error) {
+	exit := runDestroyUnit(cmdDestroy, r.units)
 	if exit != r.expectedExit {
 		errchan <- fmt.Errorf("%s: expected exit code %d but received %d", r.description, r.expectedExit, exit)
+		return
 	}
 	for _, destroyedUnit := range r.units {
 		u, _ := cAPI.Unit(destroyedUnit)
@@ -52,6 +53,11 @@ func TestRunDestroyUnits(t *testing.T) {
 			[]string{"y1", "y2", "y3", "y4", "j1", "j2", "j3", "j4", "j5", "y0"},
 			0,
 		},
+		{
+			"destroy null input",
+			[]string{},
+			0,
+		},
 	}
 
 	// Check with two goroutines we don't care we should just get
@@ -62,16 +68,16 @@ func TestRunDestroyUnits(t *testing.T) {
 		var wg sync.WaitGroup
 		errchan := make(chan error)
 
-		cAPI = newFakeRegistryForCommands(unitPrefix, len(r.units))
+		cAPI = newFakeRegistryForCommands(unitPrefix, len(r.units), false)
 
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			doDestroyUnits(r, errchan)
+			doDestroyUnits(t, r, errchan)
 		}()
 		go func() {
 			defer wg.Done()
-			doDestroyUnits(r, errchan)
+			doDestroyUnits(t, r, errchan)
 		}()
 
 		go func() {

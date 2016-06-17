@@ -11,7 +11,7 @@ Every system in the fleet cluster runs a single `fleetd` daemon. Each daemon enc
 - The engine uses a _lease model_ to enforce that only one engine is running at a time. Every time a reconciliation is due, an engine will attempt to take a lease on etcd. If the lease succeeds, the reconciliation proceeds; otherwise, that engine will remain idle until the next reconciliation period begins.
 - The engine uses a simplistic "least-loaded" scheduling algorithm: when considering where to schedule a given unit, preference is given to agents running the smallest number of units.
 
-The reconciliation loop of the engine can be disabled with the `--disable-engine` flag. This means that
+The reconciliation loop of the engine can be disabled with the `disable_engine` config flag. This means that
 this `fleetd` daemon will *never* become a cluster leader. If all running daemons have this setting,
 your cluster is dead; i.e. no jobs will be scheduled. Use with care.
 
@@ -58,7 +58,7 @@ You should avoid public access to etcd and instead run fleet [from your local la
 
 ## Securing fleetd
 
-It is also recommended to run fleetd under separate `fleet` user and group, and set the permissions of the fleetd API's listening Unix socket to `0660`. This will require local user to be in `fleet` group to perform an action with fleetd. Since the fleet daemon uses [D-Bus][d-bus] to communicate with systemd it is necessary to create a [`polkit(8)`][polkit] rule to allow fleetd to communicate with systemd:
+systemd version 216 or later supports [`polkit(8)`][polkit] rules to control access for unprivileged users. It is recommended to run fleetd under its own `fleet` user and group, and to set the permissions of the fleetd API socket to mode `0660`, allowing only that user and group to write to the socket. This configuration will require a login user to be in the `fleet` group to perform actions with fleetd. The polkit rule below grants the the fleetd process running as the unprivileged `fleet` user to communicate with systemd over [D-Bus][d-bus]:
 
 ```js
 polkit.addRule(function(action, subject) {

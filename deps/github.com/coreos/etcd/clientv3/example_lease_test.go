@@ -1,4 +1,4 @@
-// Copyright 2016 CoreOS, Inc.
+// Copyright 2016 The etcd Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,12 +18,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/lease"
+	"golang.org/x/net/context"
 )
 
-func ExampleLease_create() {
+func ExampleLease_grant() {
 	cli, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: dialTimeout,
@@ -33,18 +32,14 @@ func ExampleLease_create() {
 	}
 	defer cli.Close()
 
-	kvc := clientv3.NewKV(cli)
-	lapi := clientv3.NewLease(cli)
-	defer lapi.Close()
-
 	// minimum lease TTL is 5-second
-	resp, err := lapi.Create(context.TODO(), 5)
+	resp, err := cli.Grant(context.TODO(), 5)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// after 5 seconds, the key 'foo' will be removed
-	_, err = kvc.Put(context.TODO(), "foo", "bar", clientv3.WithLease(lease.LeaseID(resp.ID)))
+	_, err = cli.Put(context.TODO(), "foo", "bar", clientv3.WithLease(resp.ID))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -60,32 +55,28 @@ func ExampleLease_revoke() {
 	}
 	defer cli.Close()
 
-	kvc := clientv3.NewKV(cli)
-	lapi := clientv3.NewLease(cli)
-	defer lapi.Close()
-
-	resp, err := lapi.Create(context.TODO(), 5)
+	resp, err := cli.Grant(context.TODO(), 5)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = kvc.Put(context.TODO(), "foo", "bar", clientv3.WithLease(lease.LeaseID(resp.ID)))
+	_, err = cli.Put(context.TODO(), "foo", "bar", clientv3.WithLease(resp.ID))
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// revoking lease expires the key attached to its lease ID
-	_, err = lapi.Revoke(context.TODO(), lease.LeaseID(resp.ID))
+	_, err = cli.Revoke(context.TODO(), resp.ID)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	gresp, err := kvc.Get(context.TODO(), "foo")
+	gresp, err := cli.Get(context.TODO(), "foo")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("number of keys:", len(gresp.Kvs))
-	// number of keys: 0
+	// Output: number of keys: 0
 }
 
 func ExampleLease_keepAlive() {
@@ -98,25 +89,25 @@ func ExampleLease_keepAlive() {
 	}
 	defer cli.Close()
 
-	kvc := clientv3.NewKV(cli)
-	lapi := clientv3.NewLease(cli)
-	defer lapi.Close()
-
-	resp, err := lapi.Create(context.TODO(), 5)
+	resp, err := cli.Grant(context.TODO(), 5)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = kvc.Put(context.TODO(), "foo", "bar", clientv3.WithLease(lease.LeaseID(resp.ID)))
+	_, err = cli.Put(context.TODO(), "foo", "bar", clientv3.WithLease(resp.ID))
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// the key 'foo' will be kept forever
-	_, err = lapi.KeepAlive(context.TODO(), lease.LeaseID(resp.ID))
-	if err != nil {
-		log.Fatal(err)
+	ch, kaerr := cli.KeepAlive(context.TODO(), resp.ID)
+	if kaerr != nil {
+		log.Fatal(kaerr)
 	}
+
+	ka := <-ch
+	fmt.Println("ttl:", ka.TTL)
+	// Output: ttl: 5
 }
 
 func ExampleLease_keepAliveOnce() {
@@ -129,23 +120,22 @@ func ExampleLease_keepAliveOnce() {
 	}
 	defer cli.Close()
 
-	kvc := clientv3.NewKV(cli)
-	lapi := clientv3.NewLease(cli)
-	defer lapi.Close()
-
-	resp, err := lapi.Create(context.TODO(), 5)
+	resp, err := cli.Grant(context.TODO(), 5)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	_, err = kvc.Put(context.TODO(), "foo", "bar", clientv3.WithLease(lease.LeaseID(resp.ID)))
+	_, err = cli.Put(context.TODO(), "foo", "bar", clientv3.WithLease(resp.ID))
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// to renew the lease only once
-	_, err = lapi.KeepAliveOnce(context.TODO(), lease.LeaseID(resp.ID))
-	if err != nil {
-		log.Fatal(err)
+	ka, kaerr := cli.KeepAliveOnce(context.TODO(), resp.ID)
+	if kaerr != nil {
+		log.Fatal(kaerr)
 	}
+
+	fmt.Println("ttl:", ka.TTL)
+	// Output: ttl: 5
 }

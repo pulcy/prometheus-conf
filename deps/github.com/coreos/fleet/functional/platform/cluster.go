@@ -15,6 +15,8 @@
 package platform
 
 import (
+	"testing"
+
 	"github.com/coreos/fleet/functional/util"
 )
 
@@ -30,12 +32,14 @@ type Cluster interface {
 	ReplaceMember(Member) (Member, error)
 	Members() []Member
 	MemberCommand(Member, ...string) (string, error)
-	Destroy() error
+	Destroy(t *testing.T) error
 
 	// client operations
 	Fleetctl(m Member, args ...string) (string, string, error)
 	FleetctlWithInput(m Member, input string, args ...string) (string, string, error)
+	WaitForNUnits(Member, int) (map[string][]util.UnitState, error)
 	WaitForNActiveUnits(Member, int) (map[string][]util.UnitState, error)
+	WaitForNUnitFiles(Member, int) (map[string][]util.UnitFileState, error)
 	WaitForNMachines(Member, int) ([]string, error)
 }
 

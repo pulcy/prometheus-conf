@@ -88,6 +88,29 @@ Conflicts=*bar*
 	}
 }
 
+func TestJobReplaces(t *testing.T) {
+	testCases := []struct {
+		contents string
+		replaces []string
+	}{
+		{``, []string{}},
+		{`[Unit]
+Description=Testing
+
+[X-Fleet]
+Replaces=*bar*
+`, []string{"*bar*"}},
+	}
+	for i, tt := range testCases {
+		j := NewJob("echo.service", *newUnit(t, tt.contents))
+		replaces := j.Replaces()
+		if !reflect.DeepEqual(replaces, tt.replaces) {
+			t.Errorf("case %d: unexpected replaces: got %#v, want %#v", i, replaces, tt.replaces)
+		}
+
+	}
+}
+
 func TestParseRequirements(t *testing.T) {
 	testCases := []struct {
 		contents string
@@ -195,6 +218,11 @@ Zzz=something
 		}
 	}
 
+	jOrig := NewJob("ssh@2.service", *newUnit(t, contents))
+	// Now ensure that Contents was not modified
+	if !reflect.DeepEqual(jOrig.Unit.Contents, j.Unit.Contents) {
+		t.Errorf("Contents data was eventually modified, want:\n%#v\ngot:\n%#v", jOrig.Unit.Contents, j.Unit.Contents)
+	}
 }
 
 func TestParseRequirementsMissingSection(t *testing.T) {
@@ -504,6 +532,11 @@ func TestUnitIsGlobal(t *testing.T) {
 		// correct specifications
 		{"[X-Fleet]\nMachineOf=foo\nGlobal=true", true},
 		{"[X-Fleet]\nMachineOf=foo\nGlobal=True", true},
+		{"[X-Fleet]\nMachineOf=foo\nGlobal=Yes", true},
+		{"[X-Fleet]\nMachineOf=foo\nGlobal=On", true},
+		{"[X-Fleet]\nMachineOf=foo\nGlobal=1", true},
+		{"[X-Fleet]\nMachineOf=foo\nGlobal=t", true},
+		{"[X-Fleet]\nMachineOf=foo\nGlobal=12", false},
 		// multiple parameters - last wins
 		{"[X-Fleet]\nGlobal=true\nGlobal=false", false},
 		{"[X-Fleet]\nGlobal=false\nGlobal=true", true},
@@ -514,6 +547,33 @@ func TestUnitIsGlobal(t *testing.T) {
 		got := u.IsGlobal()
 		if got != tt.want {
 			t.Errorf("case %d: IsGlobal returned %t, want %t", i, got, tt.want)
+		}
+	}
+}
+
+func TestUnitIsTruthy(t *testing.T) {
+	for i, tt := range []struct {
+		contents string
+		want     bool
+	}{
+		// empty string
+		{"", false},
+		// bad values
+		{"false", false},
+		{"no", false},
+		{"0", false},
+		{"off", false},
+		{"f", false},
+		// correct values
+		{"true", true},
+		{"yes", true},
+		{"1", true},
+		{"on", true},
+		{"t", true},
+	} {
+		got := isTruthyValue(tt.contents)
+		if got != tt.want {
+			t.Errorf("case %d: isTruthyValue returned %t, want %t", i, got, tt.want)
 		}
 	}
 }
@@ -530,6 +590,7 @@ func TestValidateRequirements(t *testing.T) {
 		"X-ConditionMachineMetadata=up=down",
 		"MachineMetadata=true=false",
 		"Global=true",
+		"Replaces=foo",
 	}
 	for i, req := range tests {
 		contents := fmt.Sprintf("[X-Fleet]\n%s", req)

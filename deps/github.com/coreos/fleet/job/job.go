@@ -28,6 +28,8 @@ const (
 	JobStateInactive = JobState("inactive")
 	JobStateLoaded   = JobState("loaded")
 	JobStateLaunched = JobState("launched")
+
+	JobReschedule = "jobreschedule"
 )
 
 // fleet-specific unit file requirement keys.
@@ -42,6 +44,8 @@ const (
 	fleetMachineOf = "MachineOf"
 	// Prevent a unit from being collocated with other units using glob-matching on the other unit names.
 	fleetConflicts = "Conflicts"
+	// Reschedule a unit to another machine
+	fleetReplaces = "Replaces"
 	// Machine metadata key in the unit file
 	fleetMachineMetadata = "MachineMetadata"
 	// Require that the unit be scheduled on every machine in the cluster
@@ -63,6 +67,7 @@ var validRequirements = pkg.NewUnsafeSet(
 	deprecatedXConditionPrefix+fleetMachineMetadata,
 	fleetMachineMetadata,
 	fleetGlobal,
+	fleetReplaces,
 )
 
 func ParseJobState(s string) (JobState, error) {
@@ -113,7 +118,7 @@ func (u *Unit) IsGlobal() bool {
 	}
 	// Last value found wins
 	last := values[len(values)-1]
-	return strings.ToLower(last) == "true"
+	return isTruthyValue(last)
 }
 
 // NewJob creates a new Job based on the given name and Unit.
@@ -136,6 +141,14 @@ func (u *Unit) Conflicts() []string {
 		Unit: u.Unit,
 	}
 	return j.Conflicts()
+}
+
+func (u *Unit) Replaces() []string {
+	j := &Job{
+		Name: u.Name,
+		Unit: u.Unit,
+	}
+	return j.Replaces()
 }
 
 func (u *Unit) Peers() []string {
@@ -175,11 +188,14 @@ func (j *Job) requirements() map[string][]string {
 		}
 
 		if uni != nil {
+			processedValues := make([]string, len(values))
 			for i, v := range values {
-				values[i] = unitPrintf(v, *uni)
+				processedValues[i] = unitPrintf(v, *uni)
 			}
+			requirements[key] = processedValues
+		} else {
+			requirements[key] = values
 		}
-		requirements[key] = values
 	}
 
 	return requirements
@@ -204,6 +220,14 @@ func (j *Job) Conflicts() []string {
 	conflicts = append(conflicts, j.requirements()[deprecatedXPrefix+fleetConflicts]...)
 	conflicts = append(conflicts, j.requirements()[fleetConflicts]...)
 	return conflicts
+}
+
+// Replaces returns a list of Job names that should be scheduled to the another
+// machine as this Job.
+func (j *Job) Replaces() []string {
+	replaces := make([]string, 0)
+	replaces = append(replaces, j.requirements()[fleetReplaces]...)
+	return replaces
 }
 
 // Peers returns a list of Job names that must be scheduled to the same
@@ -297,4 +321,11 @@ func unitPrintf(s string, nu unit.UnitNameInfo) (out string) {
 	out = strings.Replace(out, "%p", nu.Prefix, -1)
 	out = strings.Replace(out, "%i", nu.Instance, -1)
 	return
+}
+
+// isTruthyValue returns true if a given string is any of "truthy" value,
+// i.e. "true", "yes", "1", "on", or "t".
+func isTruthyValue(s string) bool {
+	chl := strings.ToLower(s)
+	return chl == "true" || chl == "yes" || chl == "1" || chl == "on" || chl == "t"
 }

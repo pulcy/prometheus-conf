@@ -17,7 +17,7 @@ package registry
 import (
 	"time"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/go-semver/semver"
+	"github.com/coreos/go-semver/semver"
 
 	"github.com/coreos/fleet/job"
 	"github.com/coreos/fleet/machine"
@@ -26,6 +26,7 @@ import (
 
 type Registry interface {
 	ClearUnitHeartbeat(name string)
+	CreateMachineState(ms machine.MachineState, ttl time.Duration) (uint64, error)
 	CreateUnit(*job.Unit) error
 	DestroyUnit(string) error
 	UnitHeartbeat(name, machID string, ttl time.Duration) error

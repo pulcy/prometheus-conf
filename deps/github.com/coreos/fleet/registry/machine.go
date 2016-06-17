@@ -18,7 +18,8 @@ import (
 	"strings"
 	"time"
 
-	etcd "github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/etcd/client"
+	etcd "github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 
 	"github.com/coreos/fleet/machine"
 )
@@ -34,7 +35,7 @@ func (r *EtcdRegistry) Machines() (machines []machine.MachineState, err error) {
 		Recursive: true,
 	}
 
-	resp, err := r.kAPI.Get(r.ctx(), key, opts)
+	resp, err := r.kAPI.Get(context.Background(), key, opts)
 	if err != nil {
 		if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 			err = nil
@@ -61,6 +62,25 @@ func (r *EtcdRegistry) Machines() (machines []machine.MachineState, err error) {
 	return
 }
 
+func (r *EtcdRegistry) CreateMachineState(ms machine.MachineState, ttl time.Duration) (uint64, error) {
+	val, err := marshal(ms)
+	if err != nil {
+		return uint64(0), err
+	}
+
+	key := r.prefixed(machinePrefix, ms.ID, "object")
+	opts := &etcd.SetOptions{
+		PrevExist: etcd.PrevNoExist,
+		TTL:       ttl,
+	}
+	resp, err := r.kAPI.Set(context.Background(), key, val, opts)
+	if err != nil {
+		return uint64(0), err
+	}
+
+	return resp.Node.ModifiedIndex, nil
+}
+
 func (r *EtcdRegistry) SetMachineState(ms machine.MachineState, ttl time.Duration) (uint64, error) {
 	val, err := marshal(ms)
 	if err != nil {
@@ -72,7 +92,7 @@ func (r *EtcdRegistry) SetMachineState(ms machine.MachineState, ttl time.Duratio
 		PrevExist: etcd.PrevExist,
 		TTL:       ttl,
 	}
-	resp, err := r.kAPI.Set(r.ctx(), key, val, opts)
+	resp, err := r.kAPI.Set(context.Background(), key, val, opts)
 	if err == nil {
 		return resp.Node.ModifiedIndex, nil
 	}
@@ -81,7 +101,7 @@ func (r *EtcdRegistry) SetMachineState(ms machine.MachineState, ttl time.Duratio
 	// in the cluster know this is a new member
 	opts.PrevExist = etcd.PrevNoExist
 
-	resp, err = r.kAPI.Set(r.ctx(), key, val, opts)
+	resp, err = r.kAPI.Set(context.Background(), key, val, opts)
 	if err != nil {
 		return uint64(0), err
 	}
@@ -91,7 +111,7 @@ func (r *EtcdRegistry) SetMachineState(ms machine.MachineState, ttl time.Duratio
 
 func (r *EtcdRegistry) RemoveMachineState(machID string) error {
 	key := r.prefixed(machinePrefix, machID, "object")
-	_, err := r.kAPI.Delete(r.ctx(), key, nil)
+	_, err := r.kAPI.Delete(context.Background(), key, nil)
 	if isEtcdError(err, etcd.ErrorCodeKeyNotFound) {
 		err = nil
 	}

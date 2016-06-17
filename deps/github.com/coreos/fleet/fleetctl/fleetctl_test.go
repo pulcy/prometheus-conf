@@ -22,10 +22,11 @@ import (
 	"github.com/coreos/fleet/job"
 	"github.com/coreos/fleet/machine"
 	"github.com/coreos/fleet/registry"
+	"github.com/coreos/fleet/schema"
 	"github.com/coreos/fleet/unit"
 	"github.com/coreos/fleet/version"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/go-semver/semver"
+	"github.com/coreos/go-semver/semver"
 )
 
 type commandTestResults struct {
@@ -34,7 +35,7 @@ type commandTestResults struct {
 	expectedExit int
 }
 
-func newFakeRegistryForCommands(unitPrefix string, unitCount int) client.API {
+func newFakeRegistryForCommands(unitPrefix string, unitCount int, template bool) client.API {
 	// clear machineStates for every invocation
 	machineStates = nil
 	machines := []machine.MachineState{
@@ -43,30 +44,43 @@ func newFakeRegistryForCommands(unitPrefix string, unitCount int) client.API {
 	}
 
 	jobs := make([]job.Job, 0)
-	appendJobsForTests(&jobs, machines[0], unitPrefix, unitCount)
-	appendJobsForTests(&jobs, machines[1], unitPrefix, unitCount)
+	appendJobsForTests(&jobs, machines[0], unitPrefix, unitCount, template)
+	appendJobsForTests(&jobs, machines[1], unitPrefix, unitCount, template)
 
 	states := make([]unit.UnitState, 0)
-	for i := 1; i <= unitCount; i++ {
+	if template {
 		state := unit.UnitState{
-			UnitName:    fmt.Sprintf("%s%d.service", unitPrefix, i),
-			LoadState:   "loaded",
-			ActiveState: "active",
-			SubState:    "listening",
-			MachineID:   machines[0].ID,
-		}
-		states = append(states, state)
-	}
-
-	for i := 1; i <= unitCount; i++ {
-		state := unit.UnitState{
-			UnitName:    fmt.Sprintf("%s%d.service", unitPrefix, i),
+			UnitName:    fmt.Sprintf("%s@.service", unitPrefix),
 			LoadState:   "loaded",
 			ActiveState: "inactive",
 			SubState:    "dead",
-			MachineID:   machines[1].ID,
+			MachineID:   machines[0].ID,
 		}
 		states = append(states, state)
+		state.MachineID = machines[1].ID
+		states = append(states, state)
+	} else {
+		for i := 1; i <= unitCount; i++ {
+			state := unit.UnitState{
+				UnitName:    fmt.Sprintf("%s%d.service", unitPrefix, i),
+				LoadState:   "loaded",
+				ActiveState: "active",
+				SubState:    "listening",
+				MachineID:   machines[0].ID,
+			}
+			states = append(states, state)
+		}
+
+		for i := 1; i <= unitCount; i++ {
+			state := unit.UnitState{
+				UnitName:    fmt.Sprintf("%s%d.service", unitPrefix, i),
+				LoadState:   "loaded",
+				ActiveState: "inactive",
+				SubState:    "dead",
+				MachineID:   machines[1].ID,
+			}
+			states = append(states, state)
+		}
 	}
 
 	reg := registry.NewFakeRegistry()
@@ -77,14 +91,40 @@ func newFakeRegistryForCommands(unitPrefix string, unitCount int) client.API {
 	return &client.RegistryClient{Registry: reg}
 }
 
-func appendJobsForTests(jobs *[]job.Job, machine machine.MachineState, prefix string, unitCount int) {
-	for i := 1; i <= unitCount; i++ {
+func appendJobsForTests(jobs *[]job.Job, machine machine.MachineState, prefix string, unitCount int, template bool) {
+	if template {
+		// for start or load operations we may need to wait
+		// during the creation of units, and since this is a
+		// faked registry just set the 'Global' flag so we don't
+		// block forever
+		Options := []*schema.UnitOption{
+			&schema.UnitOption{
+				Section: "Unit",
+				Name:    "Description",
+				Value:   fmt.Sprintf("Template %s@.service", prefix),
+			},
+			&schema.UnitOption{
+				Section: "X-Fleet",
+				Name:    "Global",
+				Value:   "true",
+			},
+		}
+		uf := schema.MapSchemaUnitOptionsToUnitFile(Options)
 		j := job.Job{
-			Name:            fmt.Sprintf("%s%d.service", prefix, i),
-			Unit:            unit.UnitFile{},
+			Name:            fmt.Sprintf("%s@.service", prefix),
+			Unit:            *uf,
 			TargetMachineID: machine.ID,
 		}
 		*jobs = append(*jobs, j)
+	} else {
+		for i := 1; i <= unitCount; i++ {
+			j := job.Job{
+				Name:            fmt.Sprintf("%s%d.service", prefix, i),
+				Unit:            unit.UnitFile{},
+				TargetMachineID: machine.ID,
+			}
+			*jobs = append(*jobs, j)
+		}
 	}
 
 	return
@@ -181,6 +221,37 @@ func TestUnitNameMangle(t *testing.T) {
 	}
 }
 
+func TestGetBlockAttempts(t *testing.T) {
+	oldNoBlock := sharedFlags.NoBlock
+	oldBlockAttempts := sharedFlags.BlockAttempts
+
+	defer func() {
+		sharedFlags.NoBlock = oldNoBlock
+		sharedFlags.BlockAttempts = oldBlockAttempts
+	}()
+
+	var blocktests = []struct {
+		noBlock       bool
+		blockAttempts int
+		expected      int
+	}{
+		{true, 0, -1},
+		{true, -1, -1},
+		{true, 9999, -1},
+		{false, 0, 0},
+		{false, -1, 0},
+		{false, 9999, 9999},
+	}
+
+	for _, tt := range blocktests {
+		sharedFlags.NoBlock = tt.noBlock
+		sharedFlags.BlockAttempts = tt.blockAttempts
+		if n := getBlockAttempts(cmdFleet); n != tt.expected {
+			t.Errorf("got %d, want %d (for --no-block=%t, --block-attempts=%d)", n, tt.expected, tt.noBlock, tt.blockAttempts)
+		}
+	}
+}
+
 func newUnitFile(t *testing.T, contents string) *unit.UnitFile {
 	uf, err := unit.NewUnitFile(contents)
 	if err != nil {
@@ -255,6 +326,24 @@ MachineOf=zxcvq`),
 			newUnitFile(t, `[X-Fleet]
 Global=true
 Conflicts=bar`),
+		},
+		{
+			"foo.service",
+			newUnitFile(t, `[X-Fleet]
+Global=true
+Replaces=bar`),
+		},
+		{
+			"foo.service",
+			newUnitFile(t, `[X-Fleet]
+Conflicts=bar
+Replaces=bar`),
+		},
+		{
+			"foo.service",
+			newUnitFile(t, `[X-Fleet]
+MachineOf=abcd
+Replaces=abcd`),
 		},
 	}
 	for i, tt = range testCases {

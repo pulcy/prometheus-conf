@@ -1,4 +1,4 @@
-// Copyright 2015 CoreOS, Inc.
+// Copyright 2015 The etcd Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -40,8 +39,6 @@ type Agent struct {
 	cmd         *exec.Cmd
 	logfile     *os.File
 	etcdLogPath string
-
-	l net.Listener
 }
 
 func newAgent(etcd, etcdLogPath string) (*Agent, error) {
@@ -76,12 +73,12 @@ func (a *Agent) start(args ...string) error {
 }
 
 // stop stops the existing etcd process the agent started.
-func (a *Agent) stop() error {
+func (a *Agent) stopWithSig(sig os.Signal) error {
 	if a.state != stateStarted {
 		return nil
 	}
 
-	err := sigtermAndWait(a.cmd)
+	err := stopWithSig(a.cmd, sig)
 	if err != nil {
 		return err
 	}
@@ -90,24 +87,24 @@ func (a *Agent) stop() error {
 	return nil
 }
 
-func sigtermAndWait(cmd *exec.Cmd) error {
-	err := cmd.Process.Signal(syscall.SIGTERM)
+func stopWithSig(cmd *exec.Cmd, sig os.Signal) error {
+	err := cmd.Process.Signal(sig)
 	if err != nil {
 		return err
 	}
 
 	errc := make(chan error)
 	go func() {
-		_, err := cmd.Process.Wait()
-		errc <- err
+		_, ew := cmd.Process.Wait()
+		errc <- ew
 		close(errc)
 	}()
 
 	select {
 	case <-time.After(5 * time.Second):
 		cmd.Process.Kill()
-	case err := <-errc:
-		return err
+	case e := <-errc:
+		return e
 	}
 	err = <-errc
 	return err
@@ -128,7 +125,8 @@ func (a *Agent) restart() error {
 }
 
 func (a *Agent) cleanup() error {
-	if err := a.stop(); err != nil {
+	// exit with stackstrace
+	if err := a.stopWithSig(syscall.SIGQUIT); err != nil {
 		return err
 	}
 	a.state = stateUninitialized
@@ -155,7 +153,7 @@ func (a *Agent) cleanup() error {
 // terminate stops the exiting etcd process the agent started
 // and removes the data dir.
 func (a *Agent) terminate() error {
-	err := a.stop()
+	err := a.stopWithSig(syscall.SIGTERM)
 	if err != nil {
 		return err
 	}
@@ -173,6 +171,13 @@ func (a *Agent) dropPort(port int) error {
 
 func (a *Agent) recoverPort(port int) error {
 	return netutil.RecoverPort(port)
+}
+
+func (a *Agent) setLatency(ms, rv int) error {
+	if ms == 0 {
+		return netutil.RemoveLatency()
+	}
+	return netutil.SetLatency(ms, rv)
 }
 
 func (a *Agent) status() client.Status {

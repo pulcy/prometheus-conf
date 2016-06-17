@@ -19,8 +19,8 @@ import (
 	"path"
 	"time"
 
-	etcd "github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/etcd/client"
-	"github.com/coreos/fleet/Godeps/_workspace/src/golang.org/x/net/context"
+	etcd "github.com/coreos/etcd/client"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -97,18 +97,16 @@ func serializeLeaseMetadata(machID string, ver int) (string, error) {
 }
 
 type etcdLeaseManager struct {
-	kAPI       etcd.KeysAPI
-	keyPrefix  string
-	reqTimeout time.Duration
+	kAPI      etcd.KeysAPI
+	keyPrefix string
 }
 
-func NewEtcdLeaseManager(kAPI etcd.KeysAPI, keyPrefix string, reqTimeout time.Duration) *etcdLeaseManager {
-	return &etcdLeaseManager{kAPI: kAPI, keyPrefix: keyPrefix, reqTimeout: reqTimeout}
+func NewEtcdLeaseManager(kAPI etcd.KeysAPI, keyPrefix string) *etcdLeaseManager {
+	return &etcdLeaseManager{kAPI: kAPI, keyPrefix: keyPrefix}
 }
 
 func (r *etcdLeaseManager) ctx() context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), r.reqTimeout)
-	return ctx
+	return context.Background()
 }
 
 func (r *etcdLeaseManager) leasePath(name string) string {

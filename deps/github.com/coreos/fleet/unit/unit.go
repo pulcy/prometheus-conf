@@ -22,7 +22,7 @@ import (
 	"io/ioutil"
 	"strings"
 
-	"github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/go-systemd/unit"
+	"github.com/coreos/go-systemd/unit"
 )
 
 func NewUnitFile(raw string) (*UnitFile, error) {
@@ -134,6 +134,16 @@ func (u *UnitFile) String() string {
 // Hash returns the SHA1 hash of the raw contents of the Unit
 func (u *UnitFile) Hash() Hash {
 	return Hash(sha1.Sum(u.Bytes()))
+}
+
+// MatchUnitFiles compares two unitFiles
+// Returns true if the units match, false otherwise.
+func MatchUnitFiles(a *UnitFile, b *UnitFile) bool {
+	if a.Hash() == b.Hash() {
+		return true
+	}
+
+	return false
 }
 
 // RecognizedUnitType determines whether or not the given unit name represents

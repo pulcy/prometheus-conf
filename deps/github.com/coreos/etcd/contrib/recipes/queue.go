@@ -1,4 +1,4 @@
-// Copyright 2016 CoreOS, Inc.
+// Copyright 2016 The etcd Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,26 +15,25 @@
 package recipe
 
 import (
-	"github.com/coreos/etcd/Godeps/_workspace/src/golang.org/x/net/context"
 	v3 "github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/storage/storagepb"
+	"github.com/coreos/etcd/mvcc/mvccpb"
+	"golang.org/x/net/context"
 )
 
 // Queue implements a multi-reader, multi-writer distributed queue.
 type Queue struct {
 	client *v3.Client
-	kv     v3.KV
 	ctx    context.Context
 
 	keyPrefix string
 }
 
 func NewQueue(client *v3.Client, keyPrefix string) *Queue {
-	return &Queue{client, v3.NewKV(client), context.TODO(), keyPrefix}
+	return &Queue{client, context.TODO(), keyPrefix}
 }
 
 func (q *Queue) Enqueue(val string) error {
-	_, err := NewUniqueKV(q.kv, q.keyPrefix, val, 0)
+	_, err := NewUniqueKV(q.client, q.keyPrefix, val, 0)
 	return err
 }
 
@@ -42,12 +41,12 @@ func (q *Queue) Enqueue(val string) error {
 // queue is empty, Dequeue blocks until elements are available.
 func (q *Queue) Dequeue() (string, error) {
 	// TODO: fewer round trips by fetching more than one key
-	resp, err := q.kv.Get(q.ctx, q.keyPrefix, v3.WithFirstRev()...)
+	resp, err := q.client.Get(q.ctx, q.keyPrefix, v3.WithFirstRev()...)
 	if err != nil {
 		return "", err
 	}
 
-	kv, err := claimFirstKey(q.kv, resp.Kvs)
+	kv, err := claimFirstKey(q.client, resp.Kvs)
 	if err != nil {
 		return "", err
 	} else if kv != nil {
@@ -62,12 +61,12 @@ func (q *Queue) Dequeue() (string, error) {
 		q.client,
 		q.keyPrefix,
 		resp.Header.Revision,
-		[]storagepb.Event_EventType{storagepb.PUT})
+		[]mvccpb.Event_EventType{mvccpb.PUT})
 	if err != nil {
 		return "", err
 	}
 
-	ok, err := deleteRevKey(q.kv, string(ev.Kv.Key), ev.Kv.ModRevision)
+	ok, err := deleteRevKey(q.client, string(ev.Kv.Key), ev.Kv.ModRevision)
 	if err != nil {
 		return "", err
 	} else if !ok {

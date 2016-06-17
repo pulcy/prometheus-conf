@@ -29,7 +29,7 @@ import (
 	"github.com/coreos/fleet/schema"
 	"github.com/coreos/fleet/unit"
 
-	gsunit "github.com/coreos/fleet/Godeps/_workspace/src/github.com/coreos/go-systemd/unit"
+	gsunit "github.com/coreos/go-systemd/unit"
 )
 
 func wireUpUnitsResource(mux *http.ServeMux, prefix string, tokenLimit int, cAPI client.API) {
@@ -101,15 +101,35 @@ func (ur *unitsResource) set(rw http.ResponseWriter, req *http.Request, item str
 		return
 	}
 
+	newUnit := false
 	if eu == nil {
 		if len(su.Options) == 0 {
 			err := errors.New("unit does not exist and options field empty")
 			sendError(rw, http.StatusConflict, err)
+			return
 		} else if err := ValidateOptions(su.Options); err != nil {
 			sendError(rw, http.StatusBadRequest, err)
+			return
 		} else {
-			ur.create(rw, su.Name, &su)
+			// New valid unit
+			newUnit = true
 		}
+	} else if eu.Name == su.Name && len(su.Options) > 0 {
+		// There is already a unit with the same name that
+		// was submitted before. Check their hashes, if they do
+		// not match then this is probably a new version which
+		// needs its own new unit entry.
+		// In the other case if su.Options == 0 then probably we
+		// don't want to update the Unit options nor its content
+		// but only set the target job state of the
+		// corresponding unit, in this case just ignore.
+		a := schema.MapSchemaUnitOptionsToUnitFile(su.Options)
+		b := schema.MapSchemaUnitOptionsToUnitFile(eu.Options)
+		newUnit = !unit.MatchUnitFiles(a, b)
+	}
+
+	if newUnit {
+		ur.create(rw, su.Name, &su)
 		return
 	}
 
@@ -203,6 +223,7 @@ func ValidateOptions(opts []*schema.UnitOption) error {
 		Unit: *uf,
 	}
 	conflicts := pkg.NewUnsafeSet(j.Conflicts()...)
+	replaces := pkg.NewUnsafeSet(j.Replaces()...)
 	peers := pkg.NewUnsafeSet(j.Peers()...)
 	for _, peer := range peers.Values() {
 		for _, conflict := range conflicts.Values() {
@@ -211,9 +232,16 @@ func ValidateOptions(opts []*schema.UnitOption) error {
 				return fmt.Errorf("unresolvable requirements: peer %q matches conflict %q", peer, conflict)
 			}
 		}
+		for _, replace := range replaces.Values() {
+			matched, _ := path.Match(replace, peer)
+			if matched {
+				return fmt.Errorf("unresolvable requirements: peer %q matches replace %q", peer, replace)
+			}
+		}
 	}
 	hasPeers := peers.Length() != 0
 	hasConflicts := conflicts.Length() != 0
+	hasReplaces := replaces.Length() != 0
 	_, hasReqTarget := j.RequiredTarget()
 	u := &job.Unit{
 		Unit: *uf,
@@ -227,10 +255,16 @@ func ValidateOptions(opts []*schema.UnitOption) error {
 		return errors.New("MachineID cannot be used with Conflicts")
 	case hasReqTarget && isGlobal:
 		return errors.New("MachineID cannot be used with Global")
+	case hasReqTarget && hasReplaces:
+		return errors.New("MachineID cannot be used with Replaces")
 	case isGlobal && hasPeers:
 		return errors.New("Global cannot be used with Peers")
 	case isGlobal && hasConflicts:
 		return errors.New("Global cannot be used with Conflicts")
+	case isGlobal && hasReplaces:
+		return errors.New("Global cannot be used with Replaces")
+	case hasConflicts && hasReplaces:
+		return errors.New("Conflicts cannot be used with Replaces")
 	}
 
 	return nil
