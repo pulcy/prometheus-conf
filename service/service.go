@@ -112,7 +112,7 @@ func (s *Service) runOnce() error {
 	}
 	newConfig := string(raw)
 	if newConfig != s.lastConfig {
-		s.Log.Debugf("Updating %s", s.ConfigPath)
+		s.Log.Infof("Updating %s", s.ConfigPath)
 		if err := ioutil.WriteFile(s.ConfigPath, raw, 0755); err != nil {
 			return maskAny(err)
 		}

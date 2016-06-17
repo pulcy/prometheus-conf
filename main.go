@@ -71,6 +71,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	s := service.NewService(flags.ServiceConfig, service.ServiceDependencies{
 		Log: log,
 	})
+	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 	if err := s.Run(); err != nil {
 		Exitf("Config creation failed: %#v", err)
 	}
