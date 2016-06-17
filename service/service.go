@@ -53,7 +53,14 @@ func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
 
 // Run builds the config once of continuously
 func (s *Service) Run() error {
-	go s.catchTriggers()
+	trigger := make(chan struct{})
+	for _, p := range plugins {
+		if err := p.Start(trigger); err != nil {
+			return maskAny(err)
+		}
+	}
+
+	go s.catchTriggers(trigger)
 	s.updates = 1
 	var lastUpdates uint32
 	for {
@@ -75,11 +82,7 @@ func (s *Service) Run() error {
 
 // catchTriggers increments an updates counter for every received trigger and at every loop interval.
 // This updates counter is used to debounce events and avoid updating the configuration to often.
-func (s *Service) catchTriggers() {
-	trigger := make(chan struct{})
-	for _, p := range plugins {
-		go p.Start(trigger)
-	}
+func (s *Service) catchTriggers(trigger chan struct{}) {
 	interval := time.NewTicker(s.LoopDelay)
 	for {
 		select {

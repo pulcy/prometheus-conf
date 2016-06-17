@@ -57,8 +57,9 @@ func (p *fleetPlugin) Setup(flagSet *pflag.FlagSet) {
 }
 
 // Start the plugin. Send a value on the given channel to trigger an update of the configuration.
-func (p *fleetPlugin) Start(trigger chan struct{}) {
+func (p *fleetPlugin) Start(trigger chan struct{}) error {
 	// No custom triggers here, just update once in a while.
+	return nil
 }
 
 // Extract data from fleet to create node_exporter targets

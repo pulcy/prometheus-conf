@@ -15,5 +15,6 @@
 package main
 
 import (
+	_ "github.com/pulcy/prometheus-conf/service/custom"
 	_ "github.com/pulcy/prometheus-conf/service/fleet"
 )

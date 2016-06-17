@@ -23,7 +23,8 @@ type Plugin interface {
 	Setup(flagSet *pflag.FlagSet)
 
 	// Start the plugin. Send a value on the given channel to trigger an update of the configuration.
-	Start(trigger chan struct{})
+	// Use a go-routine internally since this method is blocking.
+	Start(trigger chan struct{}) error
 
 	// CreateNodes creates all scrape configurations this plugin is aware of.
 	CreateNodes() ([]ScrapeConfig, error)
