@@ -54,6 +54,8 @@ update-vendor:
 		github.com/go-yaml/yaml \
 		github.com/juju/errgo \
 		github.com/op/go-logging \
+		github.com/pulcy/prometheus-conf-api \
+		github.com/pulcy/registrator-api \
 		github.com/spf13/cobra \
 		github.com/spf13/pflag
 

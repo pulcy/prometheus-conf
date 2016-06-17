@@ -16,19 +16,21 @@ package service
 
 import (
 	"io/ioutil"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-yaml/yaml"
 	"github.com/op/go-logging"
 )
 
+const (
+	minRunInterval = time.Millisecond * 100
+)
+
 type ServiceConfig struct {
 	ConfigPath string
 	Once       bool
 	LoopDelay  time.Duration
-
-	FleetURL         string
-	NodeExporterPort int
 }
 
 type ServiceDependencies struct {
@@ -37,6 +39,9 @@ type ServiceDependencies struct {
 type Service struct {
 	ServiceConfig
 	ServiceDependencies
+
+	updates    uint32
+	lastConfig string
 }
 
 func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
@@ -46,19 +51,44 @@ func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
 	}
 }
 
-// Build the config once of continuously
+// Run builds the config once of continuously
 func (s *Service) Run() error {
+	go s.catchTriggers()
+	s.updates = 1
+	var lastUpdates uint32
 	for {
-		err := s.runOnce()
-		if err != nil {
-			s.Log.Errorf("runOnce failed: %#v", err)
+		newUpdates := atomic.LoadUint32(&s.updates)
+		if newUpdates != lastUpdates {
+			lastUpdates = newUpdates
+			err := s.runOnce()
+			if err != nil {
+				s.Log.Errorf("runOnce failed: %#v", err)
+			}
+			if s.Once {
+				return maskAny(err)
+			}
+		} else {
+			time.Sleep(minRunInterval)
 		}
-		if s.Once {
-			return maskAny(err)
-		}
-		time.Sleep(s.LoopDelay)
 	}
-	return nil
+}
+
+// catchTriggers increments an updates counter for every received trigger and at every loop interval.
+// This updates counter is used to debounce events and avoid updating the configuration to often.
+func (s *Service) catchTriggers() {
+	trigger := make(chan struct{})
+	for _, p := range plugins {
+		go p.Start(trigger)
+	}
+	interval := time.NewTicker(s.LoopDelay)
+	for {
+		select {
+		case <-trigger:
+			atomic.AddUint32(&s.updates, 1)
+		case <-interval.C:
+			atomic.AddUint32(&s.updates, 1)
+		}
+	}
 }
 
 func (s *Service) runOnce() error {
@@ -73,8 +103,12 @@ func (s *Service) runOnce() error {
 	if err != nil {
 		return maskAny(err)
 	}
-	if err := ioutil.WriteFile(s.ConfigPath, raw, 0755); err != nil {
-		return maskAny(err)
+	newConfig := string(raw)
+	if newConfig != s.lastConfig {
+		if err := ioutil.WriteFile(s.ConfigPath, raw, 0755); err != nil {
+			return maskAny(err)
+		}
+		s.lastConfig = newConfig
 	}
 
 	return nil
@@ -84,12 +118,14 @@ func (s *Service) runOnce() error {
 func (s *Service) createConfig() (PrometheusConfig, error) {
 	config := PrometheusConfig{}
 
-	// Fleet
-	cfgs, err := s.createFleetNodes()
-	if err != nil {
-		return config, maskAny(err)
+	// Let all plugins create their nodes
+	for _, p := range plugins {
+		cfgs, err := p.CreateNodes()
+		if err != nil {
+			return config, maskAny(err)
+		}
+		config.ScrapeConfigs = append(config.ScrapeConfigs, cfgs...)
 	}
-	config.ScrapeConfigs = append(config.ScrapeConfigs, cfgs...)
 
 	return config, nil
 }
