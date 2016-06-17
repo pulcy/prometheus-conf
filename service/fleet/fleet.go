@@ -26,6 +26,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pulcy/prometheus-conf/service"
+	"github.com/pulcy/prometheus-conf/util"
 )
 
 var (
@@ -34,17 +35,19 @@ var (
 
 const (
 	defaultNodeExporterPort = 9102
+	logName                 = "fleet"
 )
 
 type fleetPlugin struct {
 	log              *logging.Logger
 	FleetURL         string
+	FleetLogLevel    string
 	NodeExporterPort int
 }
 
 func init() {
 	service.RegisterPlugin("fleet", &fleetPlugin{
-		log:              logging.MustGetLogger("fleet"),
+		log:              logging.MustGetLogger(logName),
 		FleetURL:         "",
 		NodeExporterPort: defaultNodeExporterPort,
 	})
@@ -53,11 +56,15 @@ func init() {
 // Configure the command line flags needed by the plugin.
 func (p *fleetPlugin) Setup(flagSet *pflag.FlagSet) {
 	flagSet.StringVar(&p.FleetURL, "fleet-url", "", "URL of fleet")
+	flagSet.StringVar(&p.FleetLogLevel, "fleet-log-level", "", "Log level of fleet plugin")
 	flagSet.IntVar(&p.NodeExporterPort, "node-exporter-port", defaultNodeExporterPort, "Port that node_exporters are listening on")
 }
 
 // Start the plugin. Send a value on the given channel to trigger an update of the configuration.
-func (p *fleetPlugin) Start(trigger chan struct{}) error {
+func (p *fleetPlugin) Start(config service.ServiceConfig, trigger chan struct{}) error {
+	if err := util.SetLogLevel(p.FleetLogLevel, config.LogLevel, logName); err != nil {
+		return maskAny(err)
+	}
 	// No custom triggers here, just update once in a while.
 	return nil
 }

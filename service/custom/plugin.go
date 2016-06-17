@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pulcy/prometheus-conf/service"
+	"github.com/pulcy/prometheus-conf/util"
 )
 
 var (
@@ -30,13 +31,15 @@ var (
 )
 
 const (
+	logName         = "custom"
 	defaultEtcdPath = "/pulcy/metrics"
 	defaultEtcdURL  = "http://127.0.0.1:2379" + defaultEtcdPath
 )
 
 type customPlugin struct {
-	log     *logging.Logger
-	EtcdURL string
+	log            *logging.Logger
+	EtcdURL        string
+	CustomLogLevel string
 
 	backend     *etcdBackend
 	registrator regapi.API
@@ -44,7 +47,7 @@ type customPlugin struct {
 
 func init() {
 	service.RegisterPlugin("custom", &customPlugin{
-		log:     logging.MustGetLogger("custom"),
+		log:     logging.MustGetLogger(logName),
 		EtcdURL: defaultEtcdURL,
 	})
 }
@@ -52,10 +55,14 @@ func init() {
 // Configure the command line flags needed by the plugin.
 func (p *customPlugin) Setup(flagSet *pflag.FlagSet) {
 	flagSet.StringVar(&p.EtcdURL, "etcd-url", defaultEtcdURL, "URL of ETCD")
+	flagSet.StringVar(&p.CustomLogLevel, "custom-log-level", "", "Log level of the custom plugin")
 }
 
 // Start the plugin. Send a value on the given channel to trigger an update of the configuration.
-func (p *customPlugin) Start(trigger chan struct{}) error {
+func (p *customPlugin) Start(config service.ServiceConfig, trigger chan struct{}) error {
+	if err := util.SetLogLevel(p.CustomLogLevel, config.LogLevel, logName); err != nil {
+		return maskAny(err)
+	}
 	if p.EtcdURL == "" {
 		return nil
 	}

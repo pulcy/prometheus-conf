@@ -28,6 +28,7 @@ const (
 )
 
 type ServiceConfig struct {
+	LogLevel   string
 	ConfigPath string
 	Once       bool
 	LoopDelay  time.Duration
@@ -55,7 +56,7 @@ func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
 func (s *Service) Run() error {
 	trigger := make(chan struct{})
 	for _, p := range plugins {
-		if err := p.Start(trigger); err != nil {
+		if err := p.Start(s.ServiceConfig, trigger); err != nil {
 			return maskAny(err)
 		}
 	}
@@ -87,8 +88,10 @@ func (s *Service) catchTriggers(trigger chan struct{}) {
 	for {
 		select {
 		case <-trigger:
+			s.Log.Debugf("trigger received")
 			atomic.AddUint32(&s.updates, 1)
 		case <-interval.C:
+			s.Log.Debugf("loop interval")
 			atomic.AddUint32(&s.updates, 1)
 		}
 	}
@@ -108,6 +111,7 @@ func (s *Service) runOnce() error {
 	}
 	newConfig := string(raw)
 	if newConfig != s.lastConfig {
+		s.Log.Debugf("Updating %s", s.ConfigPath)
 		if err := ioutil.WriteFile(s.ConfigPath, raw, 0755); err != nil {
 			return maskAny(err)
 		}
