@@ -125,7 +125,10 @@ func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 		}
 
 		for _, s := range services {
-			if m.ServiceName != s.ServiceName || m.ServicePort != s.ServicePort {
+			if m.ServiceName != s.ServiceName {
+				continue
+			}
+			if m.ServicePort != 0 && m.ServicePort != s.ServicePort {
 				continue
 			}
 
@@ -142,6 +145,8 @@ func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 
 		if len(scrapeConfig.TargetGroups) > 0 {
 			result = append(result, scrapeConfig)
+		} else {
+			p.log.Debugf("No services found for metrics %s-%d", m.ServiceName, m.ServicePort)
 		}
 	}
 

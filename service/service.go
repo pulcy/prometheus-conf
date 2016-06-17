@@ -67,6 +67,7 @@ func (s *Service) Run() error {
 	for {
 		newUpdates := atomic.LoadUint32(&s.updates)
 		if newUpdates != lastUpdates {
+			s.Log.Debugf("updates has changed, calling runOnce (%v -> %v)", lastUpdates, newUpdates)
 			lastUpdates = newUpdates
 			err := s.runOnce()
 			if err != nil {

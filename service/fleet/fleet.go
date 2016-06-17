@@ -21,6 +21,7 @@ import (
 	"net/url"
 
 	"github.com/coreos/fleet/client"
+	"github.com/coreos/fleet/machine"
 	"github.com/juju/errgo"
 	"github.com/op/go-logging"
 	"github.com/spf13/pflag"
@@ -39,10 +40,12 @@ const (
 )
 
 type fleetPlugin struct {
-	log              *logging.Logger
 	FleetURL         string
 	FleetLogLevel    string
 	NodeExporterPort int
+
+	log          *logging.Logger
+	lastMachines []machine.MachineState
 }
 
 func init() {
@@ -93,7 +96,10 @@ func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 	p.log.Debugf("fetching fleet machines from %s", p.FleetURL)
 	machines, err := fleet.Machines()
 	if err != nil {
-		return nil, maskAny(err)
+		p.log.Warningf("Failed to fetch machines from %s: %#v (using previous ones)", p.FleetURL, err)
+		machines = p.lastMachines
+	} else {
+		p.lastMachines = machines
 	}
 
 	// Build scrape config list

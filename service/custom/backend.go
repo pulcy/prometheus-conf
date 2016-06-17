@@ -16,6 +16,7 @@ package custom
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/coreos/etcd/client"
 	"github.com/op/go-logging"
@@ -86,15 +87,21 @@ func (b *etcdBackend) Metrics() ([]api.MetricsServiceRecord, error) {
 	if resp.Node == nil {
 		return list, nil
 	}
+	found := make(map[string]struct{})
 	for _, metricsNode := range resp.Node.Nodes {
 		var record api.MetricsServiceRecord
 		if err := json.Unmarshal([]byte(metricsNode.Value), &record); err != nil {
 			b.Logger.Warningf("Cannot failed metrics node '%s': %v", metricsNode.Key, err)
 			continue
 		}
-		list = append(list, record)
+		key := fmt.Sprintf("%s-%d", record.ServiceName, record.ServicePort)
+		if _, ok := found[key]; !ok {
+			found[key] = struct{}{}
+			list = append(list, record)
+		}
 	}
 
+	b.Logger.Debugf("Found %d distinct metrics records", len(list))
 	return list, nil
 }
 
