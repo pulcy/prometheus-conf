@@ -24,18 +24,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pulcy/prometheus-conf/service"
+	"github.com/pulcy/prometheus-conf/util"
 )
 
 const (
-	projectName             = "prometheus-conf"
-	defaultConfigPath       = "./prometheus.yml"
-	defaultNodeExporterPort = 9102
+	projectName       = "prometheus-conf"
+	defaultConfigPath = "./prometheus.yml"
+	defaultLoopDelay  = time.Second * 30
+	defaultLogLevel   = "info"
 )
 
 var (
-	defaultLoopDelay = time.Second * 30
-	defaultLogLevel  = "info"
-
 	projectVersion = "dev"
 	projectBuild   = "dev"
 )
@@ -48,30 +47,31 @@ var (
 	}
 	log   = logging.MustGetLogger(projectName)
 	flags struct {
-		logLevel string
 		service.ServiceConfig
 	}
 )
 
 func init() {
 	logging.SetFormatter(logging.MustStringFormatter("[%{level:-5s}] %{message}"))
-	cmdMain.Flags().StringVar(&flags.logLevel, "log-level", defaultLogLevel, "Log level (debug|info|warning|error)")
+	cmdMain.Flags().StringVar(&flags.LogLevel, "log-level", defaultLogLevel, "Log level (debug|info|warning|error)")
 	cmdMain.Flags().StringVar(&flags.ConfigPath, "config-path", defaultConfigPath, "Path of the generated config file")
 	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config will be generated only once")
 	cmdMain.Flags().DurationVar(&flags.LoopDelay, "loop-delay", defaultLoopDelay, "Time to wait before rebuilding the config file")
-	cmdMain.Flags().StringVar(&flags.FleetURL, "fleet-url", "", "URL of fleet")
-	cmdMain.Flags().IntVar(&flags.NodeExporterPort, "node-exporter-port", defaultNodeExporterPort, "Port that node_exporters are listening on")
 }
 
 func main() {
+	service.SetupPlugins(cmdMain.Flags())
 	cmdMain.Execute()
 }
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
-	setLogLevel(flags.logLevel)
+	if err := util.SetLogLevel(flags.LogLevel, defaultLogLevel, projectName); err != nil {
+		Exitf("Failed to set log-level: %#v", err)
+	}
 	s := service.NewService(flags.ServiceConfig, service.ServiceDependencies{
 		Log: log,
 	})
+	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 	if err := s.Run(); err != nil {
 		Exitf("Config creation failed: %#v", err)
 	}
@@ -91,12 +91,4 @@ func def(envKey, defaultValue string) string {
 		s = defaultValue
 	}
 	return s
-}
-
-func setLogLevel(logLevel string) {
-	level, err := logging.LogLevel(logLevel)
-	if err != nil {
-		Exitf("Invalid log-level '%s': %#v", logLevel, err)
-	}
-	logging.SetLevel(level, projectName)
 }
