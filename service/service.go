@@ -167,12 +167,11 @@ func (s *Service) createConfig() (PrometheusConfig, error) {
 	// Store all rule files
 	for hash, rule := range allRules {
 		rulePath := filepath.Join(s.RulesPath, hash)
-		if _, err := os.Stat(rulePath); err == nil {
-			// Rule already exists
-			continue
-		}
-		if err := ioutil.WriteFile(rulePath, []byte(rule), 0644); err != nil {
-			return config, maskAny(err)
+		if _, err := os.Stat(rulePath); err != nil {
+			if err := ioutil.WriteFile(rulePath, []byte(rule), 0644); err != nil {
+				return config, maskAny(err)
+			}
+			s.Log.Debugf("Written rules file %s", rulePath)
 		}
 		config.RuleFiles = append(config.RuleFiles, rulePath)
 	}

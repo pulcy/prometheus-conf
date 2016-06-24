@@ -181,8 +181,8 @@ func (p *customUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 // CreateRules creates all rules this plugin is aware of.
 // The returns string list should contain the content of the various rules.
 func (p *customUpdate) CreateRules() ([]string, error) {
-	rulesChan := make(chan string)
-	wg := sync.WaitGroup{}
+	// Build URL list
+	var urls []string
 	for _, m := range p.metrics {
 		if m.RulesPath == "" {
 			continue
@@ -193,35 +193,48 @@ func (p *customUpdate) CreateRules() ([]string, error) {
 				continue
 			}
 
-			// Go fetch rule on each instance
+			// Build URL for every instance
 			for _, instance := range s.Instances {
-				wg.Add(1)
-				go func(ip string, port int, rulePath string) {
-					defer wg.Done()
-					url := url.URL{
-						Scheme: "http",
-						Host:   net.JoinHostPort(ip, strconv.Itoa(port)),
-						Path:   rulePath,
-					}
-					resp, err := http.Get(url.RequestURI())
-					if err != nil {
-						p.log.Errorf("Failed to fetch rule from '%s': %#v", url, err)
-						return
-					}
-					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-						p.log.Errorf("Failed to fetch rule from '%s': Status %d", url, resp.StatusCode)
-						return
-					}
-					defer resp.Body.Close()
-					raw, err := ioutil.ReadAll(resp.Body)
-					if err != nil {
-						p.log.Errorf("Failed to read rule from '%s': %#v", url, err)
-						return
-					}
-					rulesChan <- string(raw)
-				}(instance.IP, instance.Port, m.RulesPath)
+				u := url.URL{
+					Scheme: "http",
+					Host:   net.JoinHostPort(instance.IP, strconv.Itoa(instance.Port)),
+					Path:   m.RulesPath,
+				}
+				urls = append(urls, u.String())
 			}
 		}
+	}
+
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	// Fetch rules from URLs
+	rulesChan := make(chan string, len(urls))
+	wg := sync.WaitGroup{}
+	for _, url := range urls {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			p.log.Debugf("fetching rules from %s", url)
+			resp, err := http.Get(url)
+			if err != nil {
+				p.log.Errorf("Failed to fetch rule from '%s': %#v", url, err)
+				return
+			}
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				p.log.Errorf("Failed to fetch rule from '%s': Status %d", url, resp.StatusCode)
+				return
+			}
+			defer resp.Body.Close()
+			raw, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				p.log.Errorf("Failed to read rule from '%s': %#v", url, err)
+				return
+			}
+			rulesChan <- string(raw)
+			p.log.Debugf("done fetching rules from %s", url)
+		}(url)
 	}
 
 	wg.Wait()
@@ -230,6 +243,7 @@ func (p *customUpdate) CreateRules() ([]string, error) {
 	for rule := range rulesChan {
 		result = append(result, rule)
 	}
+	p.log.Debugf("Found %d rules", len(result))
 
 	return result, nil
 }
