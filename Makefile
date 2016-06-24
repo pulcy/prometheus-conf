@@ -51,6 +51,7 @@ update-vendor:
 	@pulsar go vendor -V $(VENDORDIR) \
 		github.com/coreos/etcd/client \
 		github.com/coreos/fleet/client \
+		github.com/fsouza/go-dockerclient \
 		github.com/go-yaml/yaml \
 		github.com/juju/errgo \
 		github.com/op/go-logging \

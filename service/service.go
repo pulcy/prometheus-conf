@@ -32,11 +32,12 @@ const (
 )
 
 type ServiceConfig struct {
-	LogLevel   string
-	ConfigPath string
-	RulesPath  string
-	Once       bool
-	LoopDelay  time.Duration
+	LogLevel                string
+	ConfigPath              string
+	RulesPath               string
+	Once                    bool
+	LoopDelay               time.Duration
+	PrometheusContainerName string
 }
 
 type ServiceDependencies struct {
@@ -125,6 +126,11 @@ func (s *Service) runOnce() error {
 			return maskAny(err)
 		}
 		s.lastConfig = newConfig
+
+		// Reload configuration
+		if err := s.reloadPrometheusConfiguration(); err != nil {
+			s.Log.Errorf("Failed to reload prometheus configuration: %#v", err)
+		}
 	}
 
 	return nil

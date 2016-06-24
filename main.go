@@ -58,6 +58,7 @@ func init() {
 	cmdMain.Flags().StringVar(&flags.RulesPath, "rules-path", "", "Path of directory containing the generated rule files")
 	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config will be generated only once")
 	cmdMain.Flags().DurationVar(&flags.LoopDelay, "loop-delay", defaultLoopDelay, "Time to wait before rebuilding the config file")
+	cmdMain.Flags().StringVar(&flags.PrometheusContainerName, "prometheus-container", "", "Name of the container running Prometheus")
 }
 
 func main() {
