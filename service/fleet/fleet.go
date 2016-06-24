@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 
 	"github.com/coreos/fleet/client"
 	"github.com/coreos/fleet/machine"
@@ -37,6 +38,7 @@ var (
 const (
 	defaultNodeExporterPort = 9102
 	logName                 = "fleet"
+	maxRecentErrors         = 30
 )
 
 type fleetPlugin struct {
@@ -46,6 +48,7 @@ type fleetPlugin struct {
 
 	log          *logging.Logger
 	lastMachines []machine.MachineState
+	recentErrors int
 }
 
 func init() {
@@ -100,8 +103,14 @@ func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 	machines, err := fleet.Machines()
 	if err != nil {
 		p.log.Warningf("Failed to fetch machines from %s: %#v (using previous ones)", p.FleetURL, err)
+		p.recentErrors++
+		if p.recentErrors > maxRecentErrors {
+			p.log.Warningf("Too many recent fleet errors, restarting")
+			os.Exit(1)
+		}
 		machines = p.lastMachines
 	} else {
+		p.recentErrors = 0
 		p.lastMachines = machines
 	}
 
