@@ -16,9 +16,17 @@ package custom
 
 import (
 	"fmt"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"sync"
 
 	"github.com/juju/errgo"
 	"github.com/op/go-logging"
+	"github.com/pulcy/prometheus-conf-api"
 	regapi "github.com/pulcy/registrator-api"
 	"github.com/spf13/pflag"
 
@@ -43,12 +51,20 @@ type customPlugin struct {
 
 	backend     *etcdBackend
 	registrator regapi.API
+	rulesCache  map[string]string
+}
+
+type customUpdate struct {
+	log      *logging.Logger
+	metrics  []api.MetricsServiceRecord
+	services []regapi.Service
 }
 
 func init() {
 	service.RegisterPlugin("custom", &customPlugin{
-		log:     logging.MustGetLogger(logName),
-		EtcdURL: defaultEtcdURL,
+		log:        logging.MustGetLogger(logName),
+		EtcdURL:    defaultEtcdURL,
+		rulesCache: make(map[string]string),
 	})
 }
 
@@ -78,6 +94,10 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) 
 	if err != nil {
 		return maskAny(err)
 	}
+	// Ensure rules dir exists
+	if err := os.MkdirAll(config.RulesPath, 0755); err != nil {
+		return maskAny(err)
+	}
 
 	// Watch for backend updates
 	go func() {
@@ -102,8 +122,7 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) 
 	return nil
 }
 
-// Extract data from the backend and registrator to create configured metrics targets
-func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
+func (p *customPlugin) Update() (service.PluginUpdate, error) {
 	if p.backend == nil || p.registrator == nil {
 		return nil, nil
 	}
@@ -117,18 +136,24 @@ func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 		return nil, maskAny(err)
 	}
 
+	return &customUpdate{
+		log:      p.log,
+		metrics:  metrics,
+		services: services,
+	}, nil
+}
+
+// Extract data from the backend and registrator to create configured metrics targets
+func (p *customUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	var result []service.ScrapeConfig
-	for _, m := range metrics {
+	for _, m := range p.metrics {
 		scrapeConfig := service.ScrapeConfig{
 			JobName:     m.ServiceName,
 			MetricsPath: m.MetricsPath,
 		}
 
-		for _, s := range services {
-			if m.ServiceName != s.ServiceName {
-				continue
-			}
-			if m.ServicePort != 0 && m.ServicePort != s.ServicePort {
+		for _, s := range p.services {
+			if !isMatch(m, s) {
 				continue
 			}
 
@@ -151,4 +176,84 @@ func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 	}
 
 	return result, nil
+}
+
+// CreateRules creates all rules this plugin is aware of.
+// The returns string list should contain the content of the various rules.
+func (p *customUpdate) CreateRules() ([]string, error) {
+	// Build URL list
+	var urls []string
+	for _, m := range p.metrics {
+		if m.RulesPath == "" {
+			continue
+		}
+
+		for _, s := range p.services {
+			if !isMatch(m, s) {
+				continue
+			}
+
+			// Build URL for every instance
+			for _, instance := range s.Instances {
+				u := url.URL{
+					Scheme: "http",
+					Host:   net.JoinHostPort(instance.IP, strconv.Itoa(instance.Port)),
+					Path:   m.RulesPath,
+				}
+				urls = append(urls, u.String())
+			}
+		}
+	}
+
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	// Fetch rules from URLs
+	rulesChan := make(chan string, len(urls))
+	wg := sync.WaitGroup{}
+	for _, url := range urls {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			p.log.Debugf("fetching rules from %s", url)
+			resp, err := http.Get(url)
+			if err != nil {
+				p.log.Errorf("Failed to fetch rule from '%s': %#v", url, err)
+				return
+			}
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				p.log.Errorf("Failed to fetch rule from '%s': Status %d", url, resp.StatusCode)
+				return
+			}
+			defer resp.Body.Close()
+			raw, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				p.log.Errorf("Failed to read rule from '%s': %#v", url, err)
+				return
+			}
+			rulesChan <- string(raw)
+			p.log.Debugf("done fetching rules from %s", url)
+		}(url)
+	}
+
+	wg.Wait()
+	close(rulesChan)
+	var result []string
+	for rule := range rulesChan {
+		result = append(result, rule)
+	}
+	p.log.Debugf("Found %d rules", len(result))
+
+	return result, nil
+}
+
+func isMatch(m api.MetricsServiceRecord, s regapi.Service) bool {
+	if m.ServiceName != s.ServiceName {
+		return false
+	}
+	if m.ServicePort != 0 && m.ServicePort != s.ServicePort {
+		return false
+	}
+	return true
 }

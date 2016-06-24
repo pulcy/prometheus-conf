@@ -55,6 +55,7 @@ func init() {
 	logging.SetFormatter(logging.MustStringFormatter("[%{level:-5s}] %{message}"))
 	cmdMain.Flags().StringVar(&flags.LogLevel, "log-level", defaultLogLevel, "Log level (debug|info|warning|error)")
 	cmdMain.Flags().StringVar(&flags.ConfigPath, "config-path", defaultConfigPath, "Path of the generated config file")
+	cmdMain.Flags().StringVar(&flags.RulesPath, "rules-path", "", "Path of directory containing the generated rule files")
 	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config will be generated only once")
 	cmdMain.Flags().DurationVar(&flags.LoopDelay, "loop-delay", defaultLoopDelay, "Time to wait before rebuilding the config file")
 }

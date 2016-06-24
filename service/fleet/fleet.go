@@ -47,8 +47,14 @@ type fleetPlugin struct {
 	NodeExporterPort int
 
 	log          *logging.Logger
-	lastMachines []machine.MachineState
+	lastUpdate   *fleetUpdate
 	recentErrors int
+}
+
+type fleetUpdate struct {
+	log              *logging.Logger
+	nodeExporterPort int
+	machines         []machine.MachineState
 }
 
 func init() {
@@ -75,8 +81,7 @@ func (p *fleetPlugin) Start(config service.ServiceConfig, trigger chan string) e
 	return nil
 }
 
-// Extract data from fleet to create node_exporter targets
-func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
+func (p *fleetPlugin) Update() (service.PluginUpdate, error) {
 	if p.FleetURL == "" {
 		return nil, nil
 	}
@@ -108,21 +113,30 @@ func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 			p.log.Warningf("Too many recent fleet errors, restarting")
 			os.Exit(1)
 		}
-		machines = p.lastMachines
+		return p.lastUpdate, nil
 	} else {
 		p.recentErrors = 0
-		p.lastMachines = machines
+		update := &fleetUpdate{
+			log:              p.log,
+			nodeExporterPort: p.NodeExporterPort,
+			machines:         machines,
+		}
+		p.lastUpdate = update
+		return update, nil
 	}
+}
 
+// Extract data from fleet to create node_exporter targets
+func (p *fleetUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	// Build scrape config list
 	scNode := service.StaticConfig{}
 	scNode.Label("source", "node")
 	scEtcd := service.StaticConfig{}
 	scEtcd.Label("source", "etcd")
-	for _, m := range machines {
+	for _, m := range p.machines {
 		ip := m.PublicIP
 		p.log.Debugf("found fleet machine %s", ip)
-		scNode.Targets = append(scNode.Targets, fmt.Sprintf("%s:%d", ip, p.NodeExporterPort))
+		scNode.Targets = append(scNode.Targets, fmt.Sprintf("%s:%d", ip, p.nodeExporterPort))
 		scEtcd.Targets = append(scEtcd.Targets, fmt.Sprintf("%s:2379", ip))
 	}
 
@@ -131,6 +145,13 @@ func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 		StaticConfigs: []service.StaticConfig{scNode, scEtcd},
 	}
 	return []service.ScrapeConfig{scrapeConfig}, nil
+}
+
+// CreateRules creates all rules this plugin is aware of.
+// The returns string list should contain the content of the various rules.
+func (p *fleetUpdate) CreateRules() ([]string, error) {
+	// No rules here
+	return nil, nil
 }
 
 func createHttpClient(url *url.URL) (*http.Client, error) {

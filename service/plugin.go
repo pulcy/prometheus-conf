@@ -26,8 +26,17 @@ type Plugin interface {
 	// Use a go-routine internally since this method is blocking.
 	Start(config ServiceConfig, trigger chan string) error
 
+	// Update the data of the plugin so a new configuration can be build.
+	Update() (PluginUpdate, error)
+}
+
+type PluginUpdate interface {
 	// CreateNodes creates all scrape configurations this plugin is aware of.
 	CreateNodes() ([]ScrapeConfig, error)
+
+	// CreateRules creates all rules this plugin is aware of.
+	// The returns string list should contain the content of the various rules.
+	CreateRules() ([]string, error)
 }
 
 var (

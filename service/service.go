@@ -15,7 +15,11 @@
 package service
 
 import (
+	"crypto/sha1"
+	"fmt"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +34,7 @@ const (
 type ServiceConfig struct {
 	LogLevel   string
 	ConfigPath string
+	RulesPath  string
 	Once       bool
 	LoopDelay  time.Duration
 }
@@ -46,6 +51,9 @@ type Service struct {
 }
 
 func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
+	if config.RulesPath == "" {
+		config.RulesPath = filepath.Join(filepath.Dir(config.ConfigPath), "rules")
+	}
 	return &Service{
 		ServiceConfig:       config,
 		ServiceDependencies: deps,
@@ -125,14 +133,47 @@ func (s *Service) runOnce() error {
 // createConfig builds he configuration file (in memory)
 func (s *Service) createConfig() (PrometheusConfig, error) {
 	config := PrometheusConfig{}
+	allRules := make(map[string]string)
 
 	// Let all plugins create their nodes
 	for _, p := range plugins {
-		cfgs, err := p.CreateNodes()
+		update, err := p.Update()
+		if err != nil {
+			return config, maskAny(err)
+		}
+		if update == nil {
+			// Nothing to do for this plugin
+			continue
+		}
+
+		// Create nodes
+		cfgs, err := update.CreateNodes()
 		if err != nil {
 			return config, maskAny(err)
 		}
 		config.ScrapeConfigs = append(config.ScrapeConfigs, cfgs...)
+
+		// Create rules
+		rules, err := update.CreateRules()
+		if err != nil {
+			return config, maskAny(err)
+		}
+		for _, rule := range rules {
+			hash := fmt.Sprintf("%x", sha1.Sum([]byte(rule)))
+			allRules[hash] = rule
+		}
+	}
+
+	// Store all rule files
+	for hash, rule := range allRules {
+		rulePath := filepath.Join(s.RulesPath, hash)
+		if _, err := os.Stat(rulePath); err != nil {
+			if err := ioutil.WriteFile(rulePath, []byte(rule), 0644); err != nil {
+				return config, maskAny(err)
+			}
+			s.Log.Debugf("Written rules file %s", rulePath)
+		}
+		config.RuleFiles = append(config.RuleFiles, rulePath)
 	}
 
 	config.Sort()
