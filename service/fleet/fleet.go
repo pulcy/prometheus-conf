@@ -87,6 +87,9 @@ func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 	if err != nil {
 		return nil, maskAny(err)
 	}
+	if tr, ok := httpClient.Transport.(*http.Transport); ok {
+		defer tr.CloseIdleConnections()
+	}
 	fleet, err := client.NewHTTPClient(httpClient, *url)
 	if err != nil {
 		return nil, maskAny(err)
@@ -144,6 +147,7 @@ func createHttpClient(url *url.URL) (*http.Client, error) {
 				// dial function must be overridden.
 				return net.Dial("unix", sockPath)
 			},
+			DisableKeepAlives: true,
 		}
 	case "http", "https":
 		trans = http.DefaultTransport
