@@ -147,6 +147,13 @@ func (p *fleetUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	return []service.ScrapeConfig{scrapeConfig}, nil
 }
 
+// CreateRules creates all rules this plugin is aware of.
+// The returns string list should contain the content of the various rules.
+func (p *fleetUpdate) CreateRules() ([]string, error) {
+	// No rules here
+	return nil, nil
+}
+
 func createHttpClient(url *url.URL) (*http.Client, error) {
 	var trans http.RoundTripper
 

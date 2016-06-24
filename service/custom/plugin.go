@@ -16,7 +16,13 @@ package custom
 
 import (
 	"fmt"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"sync"
 
 	"github.com/juju/errgo"
 	"github.com/op/go-logging"
@@ -147,10 +153,7 @@ func (p *customUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 		}
 
 		for _, s := range p.services {
-			if m.ServiceName != s.ServiceName {
-				continue
-			}
-			if m.ServicePort != 0 && m.ServicePort != s.ServicePort {
+			if !isMatch(m, s) {
 				continue
 			}
 
@@ -173,4 +176,70 @@ func (p *customUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	}
 
 	return result, nil
+}
+
+// CreateRules creates all rules this plugin is aware of.
+// The returns string list should contain the content of the various rules.
+func (p *customUpdate) CreateRules() ([]string, error) {
+	rulesChan := make(chan string)
+	wg := sync.WaitGroup{}
+	for _, m := range p.metrics {
+		if m.RulesPath == "" {
+			continue
+		}
+
+		for _, s := range p.services {
+			if !isMatch(m, s) {
+				continue
+			}
+
+			// Go fetch rule on each instance
+			for _, instance := range s.Instances {
+				wg.Add(1)
+				go func(ip string, port int, rulePath string) {
+					defer wg.Done()
+					url := url.URL{
+						Scheme: "http",
+						Host:   net.JoinHostPort(ip, strconv.Itoa(port)),
+						Path:   rulePath,
+					}
+					resp, err := http.Get(url.RequestURI())
+					if err != nil {
+						p.log.Errorf("Failed to fetch rule from '%s': %#v", url, err)
+						return
+					}
+					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+						p.log.Errorf("Failed to fetch rule from '%s': Status %d", url, resp.StatusCode)
+						return
+					}
+					defer resp.Body.Close()
+					raw, err := ioutil.ReadAll(resp.Body)
+					if err != nil {
+						p.log.Errorf("Failed to read rule from '%s': %#v", url, err)
+						return
+					}
+					rulesChan <- string(raw)
+				}(instance.IP, instance.Port, m.RulesPath)
+			}
+		}
+	}
+
+	wg.Wait()
+	close(rulesChan)
+	var result []string
+	for rule := range rulesChan {
+		result = append(result, rule)
+	}
+
+	return result, nil
+}
+
+func isMatch(m api.MetricsServiceRecord, s regapi.Service) bool {
+	if m.ServiceName != s.ServiceName {
+		return false
+	}
+	if m.ServicePort != 0 && m.ServicePort != s.ServicePort {
+		return false
+	}
+	return true
 }

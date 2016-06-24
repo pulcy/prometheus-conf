@@ -33,6 +33,10 @@ type Plugin interface {
 type PluginUpdate interface {
 	// CreateNodes creates all scrape configurations this plugin is aware of.
 	CreateNodes() ([]ScrapeConfig, error)
+
+	// CreateRules creates all rules this plugin is aware of.
+	// The returns string list should contain the content of the various rules.
+	CreateRules() ([]string, error)
 }
 
 var (
