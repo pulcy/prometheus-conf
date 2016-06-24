@@ -106,20 +106,20 @@ func (p *fleetPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 	}
 
 	// Build scrape config list
-	tgNode := service.TargetGroup{}
-	tgNode.Label("source", "node")
-	tgEtcd := service.TargetGroup{}
-	tgEtcd.Label("source", "etcd")
+	scNode := service.StaticConfig{}
+	scNode.Label("source", "node")
+	scEtcd := service.StaticConfig{}
+	scEtcd.Label("source", "etcd")
 	for _, m := range machines {
 		ip := m.PublicIP
 		p.log.Debugf("found fleet machine %s", ip)
-		tgNode.Targets = append(tgNode.Targets, fmt.Sprintf("%s:%d", ip, p.NodeExporterPort))
-		tgEtcd.Targets = append(tgEtcd.Targets, fmt.Sprintf("%s:2379", ip))
+		scNode.Targets = append(scNode.Targets, fmt.Sprintf("%s:%d", ip, p.NodeExporterPort))
+		scEtcd.Targets = append(scEtcd.Targets, fmt.Sprintf("%s:2379", ip))
 	}
 
 	scrapeConfig := service.ScrapeConfig{
-		JobName:      "node",
-		TargetGroups: []service.TargetGroup{tgNode, tgEtcd},
+		JobName:       "node",
+		StaticConfigs: []service.StaticConfig{scNode, scEtcd},
 	}
 	return []service.ScrapeConfig{scrapeConfig}, nil
 }

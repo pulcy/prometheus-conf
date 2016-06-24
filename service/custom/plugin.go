@@ -133,17 +133,17 @@ func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 			}
 
 			// Build scrape config list
-			tg := service.TargetGroup{}
-			tg.Label("source", fmt.Sprintf("%s-%d", m.ServiceName, m.ServicePort))
+			sc := service.StaticConfig{}
+			sc.Label("source", fmt.Sprintf("%s-%d", m.ServiceName, m.ServicePort))
 			for _, instance := range s.Instances {
-				tg.Targets = append(tg.Targets, fmt.Sprintf("%s:%d", instance.IP, instance.Port))
+				sc.Targets = append(sc.Targets, fmt.Sprintf("%s:%d", instance.IP, instance.Port))
 			}
 
 			// Add target group
-			scrapeConfig.TargetGroups = append(scrapeConfig.TargetGroups, tg)
+			scrapeConfig.StaticConfigs = append(scrapeConfig.StaticConfigs, sc)
 		}
 
-		if len(scrapeConfig.TargetGroups) > 0 {
+		if len(scrapeConfig.StaticConfigs) > 0 {
 			result = append(result, scrapeConfig)
 		} else {
 			p.log.Debugf("No services found for metrics %s-%d", m.ServiceName, m.ServicePort)

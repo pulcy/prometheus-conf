@@ -31,20 +31,20 @@ type GlobalConfig struct {
 }
 
 type ScrapeConfig struct {
-	JobName      string          `yaml:"job_name"`
-	HonorLabels  bool            `yaml:"honor_labels,omitempty"`
-	MetricsPath  string          `yaml:"metrics_path,omitempty"`
-	TargetGroups TargetGroupList `yaml:"target_groups,omitempty"`
+	JobName       string           `yaml:"job_name"`
+	HonorLabels   bool             `yaml:"honor_labels,omitempty"`
+	MetricsPath   string           `yaml:"metrics_path,omitempty"`
+	StaticConfigs StaticConfigList `yaml:"static_configs,omitempty"`
 }
 
 type ScrapeConfigList []ScrapeConfig
 
-type TargetGroup struct {
+type StaticConfig struct {
 	Targets []string          `yaml:"targets,omitempty"`
 	Labels  map[string]string `yaml:"labels,omitempty"`
 }
 
-type TargetGroupList []TargetGroup
+type StaticConfigList []StaticConfig
 
 func (pc *PrometheusConfig) Sort() {
 	sort.Strings(pc.RuleFiles)
@@ -55,10 +55,10 @@ func (pc *PrometheusConfig) Sort() {
 }
 
 func (sc *ScrapeConfig) Sort() {
-	for _, tg := range sc.TargetGroups {
-		tg.Sort()
+	for _, c := range sc.StaticConfigs {
+		c.Sort()
 	}
-	sort.Sort(sc.TargetGroups)
+	sort.Sort(sc.StaticConfigs)
 }
 
 func (l ScrapeConfigList) Len() int {
@@ -73,18 +73,18 @@ func (l ScrapeConfigList) Swap(i, j int) {
 	l[i], l[j] = l[j], l[i]
 }
 
-func (tg *TargetGroup) Label(name, value string) {
+func (tg *StaticConfig) Label(name, value string) {
 	if tg.Labels == nil {
 		tg.Labels = make(map[string]string)
 	}
 	tg.Labels[name] = value
 }
 
-func (tg *TargetGroup) Sort() {
+func (tg *StaticConfig) Sort() {
 	sort.Strings(tg.Targets)
 }
 
-func (tg *TargetGroup) FullString() string {
+func (tg *StaticConfig) FullString() string {
 	s := strings.Join(tg.Targets, ",")
 	for k, v := range tg.Labels {
 		s = s + k + v
@@ -92,14 +92,14 @@ func (tg *TargetGroup) FullString() string {
 	return s
 }
 
-func (l TargetGroupList) Len() int {
+func (l StaticConfigList) Len() int {
 	return len(l)
 }
 
-func (l TargetGroupList) Less(i, j int) bool {
+func (l StaticConfigList) Less(i, j int) bool {
 	return l[i].FullString() < l[j].FullString()
 }
 
-func (l TargetGroupList) Swap(i, j int) {
+func (l StaticConfigList) Swap(i, j int) {
 	l[i], l[j] = l[j], l[i]
 }
