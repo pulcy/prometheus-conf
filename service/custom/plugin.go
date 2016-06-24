@@ -16,9 +16,11 @@ package custom
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/juju/errgo"
 	"github.com/op/go-logging"
+	"github.com/pulcy/prometheus-conf-api"
 	regapi "github.com/pulcy/registrator-api"
 	"github.com/spf13/pflag"
 
@@ -43,12 +45,20 @@ type customPlugin struct {
 
 	backend     *etcdBackend
 	registrator regapi.API
+	rulesCache  map[string]string
+}
+
+type customUpdate struct {
+	log      *logging.Logger
+	metrics  []api.MetricsServiceRecord
+	services []regapi.Service
 }
 
 func init() {
 	service.RegisterPlugin("custom", &customPlugin{
-		log:     logging.MustGetLogger(logName),
-		EtcdURL: defaultEtcdURL,
+		log:        logging.MustGetLogger(logName),
+		EtcdURL:    defaultEtcdURL,
+		rulesCache: make(map[string]string),
 	})
 }
 
@@ -78,6 +88,10 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) 
 	if err != nil {
 		return maskAny(err)
 	}
+	// Ensure rules dir exists
+	if err := os.MkdirAll(config.RulesPath, 0755); err != nil {
+		return maskAny(err)
+	}
 
 	// Watch for backend updates
 	go func() {
@@ -102,8 +116,7 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) 
 	return nil
 }
 
-// Extract data from the backend and registrator to create configured metrics targets
-func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
+func (p *customPlugin) Update() (service.PluginUpdate, error) {
 	if p.backend == nil || p.registrator == nil {
 		return nil, nil
 	}
@@ -117,14 +130,23 @@ func (p *customPlugin) CreateNodes() ([]service.ScrapeConfig, error) {
 		return nil, maskAny(err)
 	}
 
+	return &customUpdate{
+		log:      p.log,
+		metrics:  metrics,
+		services: services,
+	}, nil
+}
+
+// Extract data from the backend and registrator to create configured metrics targets
+func (p *customUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	var result []service.ScrapeConfig
-	for _, m := range metrics {
+	for _, m := range p.metrics {
 		scrapeConfig := service.ScrapeConfig{
 			JobName:     m.ServiceName,
 			MetricsPath: m.MetricsPath,
 		}
 
-		for _, s := range services {
+		for _, s := range p.services {
 			if m.ServiceName != s.ServiceName {
 				continue
 			}

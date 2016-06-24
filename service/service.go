@@ -16,6 +16,7 @@ package service
 
 import (
 	"io/ioutil"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,7 @@ const (
 type ServiceConfig struct {
 	LogLevel   string
 	ConfigPath string
+	RulesPath  string
 	Once       bool
 	LoopDelay  time.Duration
 }
@@ -46,6 +48,9 @@ type Service struct {
 }
 
 func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
+	if config.RulesPath == "" {
+		config.RulesPath = filepath.Join(filepath.Dir(config.ConfigPath), "rules")
+	}
 	return &Service{
 		ServiceConfig:       config,
 		ServiceDependencies: deps,
@@ -128,7 +133,15 @@ func (s *Service) createConfig() (PrometheusConfig, error) {
 
 	// Let all plugins create their nodes
 	for _, p := range plugins {
-		cfgs, err := p.CreateNodes()
+		update, err := p.Update()
+		if err != nil {
+			return config, maskAny(err)
+		}
+		if update == nil {
+			// Nothing to do for this plugin
+			continue
+		}
+		cfgs, err := update.CreateNodes()
 		if err != nil {
 			return config, maskAny(err)
 		}
