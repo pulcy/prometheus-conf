@@ -140,11 +140,15 @@ func (p *fleetUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 		scEtcd.Targets = append(scEtcd.Targets, fmt.Sprintf("%s:2379", ip))
 	}
 
-	scrapeConfig := service.ScrapeConfig{
+	scrapeConfigNode := service.ScrapeConfig{
 		JobName:       "node",
-		StaticConfigs: []service.StaticConfig{scNode, scEtcd},
+		StaticConfigs: []service.StaticConfig{scNode},
 	}
-	return []service.ScrapeConfig{scrapeConfig}, nil
+	scrapeConfigETCD := service.ScrapeConfig{
+		JobName:       "etcd",
+		StaticConfigs: []service.StaticConfig{scEtcd},
+	}
+	return []service.ScrapeConfig{scrapeConfigNode, scrapeConfigETCD}, nil
 }
 
 // CreateRules creates all rules this plugin is aware of.
