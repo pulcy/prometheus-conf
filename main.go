@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
+	"github.com/pulcy/go-terminate"
 	"github.com/spf13/cobra"
 
 	"github.com/pulcy/prometheus-conf/service"
@@ -30,7 +31,7 @@ import (
 const (
 	projectName       = "prometheus-conf"
 	defaultConfigPath = "./prometheus.yml"
-	defaultLoopDelay  = time.Second * 30
+	defaultLoopDelay  = time.Minute
 	defaultLogLevel   = "info"
 )
 
@@ -73,6 +74,10 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	s := service.NewService(flags.ServiceConfig, service.ServiceDependencies{
 		Log: log,
 	})
+
+	t := terminate.NewTerminator(log.Infof, nil)
+	go t.ListenSignals()
+
 	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 	if err := s.Run(); err != nil {
 		Exitf("Config creation failed: %#v", err)

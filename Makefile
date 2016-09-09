@@ -17,7 +17,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 BIN := $(BINDIR)/$(PROJECT)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.7beta2-alpine
+GOVERSION := 1.7.1-alpine
 
 ifndef GOOS
 	GOOS := linux
@@ -55,6 +55,7 @@ update-vendor:
 		github.com/go-yaml/yaml \
 		github.com/juju/errgo \
 		github.com/op/go-logging \
+		github.com/pulcy/go-terminate \
 		github.com/pulcy/prometheus-conf-api \
 		github.com/pulcy/registrator-api \
 		github.com/spf13/cobra \
