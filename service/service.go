@@ -28,7 +28,8 @@ import (
 )
 
 const (
-	minRunInterval = time.Millisecond * 100
+	minRunInterval                     = time.Second * 5
+	reloadPrometheusConfigurationDelay = time.Second * 30
 )
 
 type ServiceConfig struct {
@@ -49,6 +50,7 @@ type Service struct {
 
 	updates    uint32
 	lastConfig string
+	startTime  time.Time
 }
 
 func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
@@ -58,6 +60,7 @@ func NewService(config ServiceConfig, deps ServiceDependencies) *Service {
 	return &Service{
 		ServiceConfig:       config,
 		ServiceDependencies: deps,
+		startTime:           time.Now(),
 	}
 }
 
@@ -85,9 +88,9 @@ func (s *Service) Run() error {
 			if s.Once {
 				return maskAny(err)
 			}
-		} else {
-			time.Sleep(minRunInterval)
 		}
+		// Always wait a bit so we do not hammer the infrastructure
+		time.Sleep(minRunInterval)
 	}
 }
 
@@ -128,8 +131,10 @@ func (s *Service) runOnce() error {
 		s.lastConfig = newConfig
 
 		// Reload configuration
-		if err := s.reloadPrometheusConfiguration(); err != nil {
-			s.Log.Errorf("Failed to reload prometheus configuration: %#v", err)
+		if s.canReloadPrometheusConfiguration() {
+			if err := s.reloadPrometheusConfiguration(); err != nil {
+				s.Log.Errorf("Failed to reload prometheus configuration: %#v", err)
+			}
 		}
 	}
 
@@ -185,4 +190,11 @@ func (s *Service) createConfig() (PrometheusConfig, error) {
 	config.Sort()
 
 	return config, nil
+}
+
+// canReloadPrometheusConfiguration returns true if it is safe to send a SIGHUP to
+// prometheus.
+// It prevents this until 30 seconds after startup.
+func (s *Service) canReloadPrometheusConfiguration() bool {
+	return time.Since(s.startTime) > reloadPrometheusConfigurationDelay
 }
