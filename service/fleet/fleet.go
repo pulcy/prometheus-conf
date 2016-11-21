@@ -133,11 +133,14 @@ func (p *fleetUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	scNode.Label("source", "node")
 	scEtcd := service.StaticConfig{}
 	scEtcd.Label("source", "etcd")
+	scFleet := service.StaticConfig{}
+	scFleet.Label("source", "fleet")
 	for _, m := range p.machines {
 		ip := m.PublicIP
 		p.log.Debugf("found fleet machine %s", ip)
 		scNode.Targets = append(scNode.Targets, fmt.Sprintf("%s:%d", ip, p.nodeExporterPort))
 		scEtcd.Targets = append(scEtcd.Targets, fmt.Sprintf("%s:2379", ip))
+		scFleet.Targets = append(scFleet.Targets, fmt.Sprintf("%s:49153", ip))
 	}
 
 	scrapeConfigNode := service.ScrapeConfig{
@@ -148,7 +151,11 @@ func (p *fleetUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 		JobName:       "etcd",
 		StaticConfigs: []service.StaticConfig{scEtcd},
 	}
-	return []service.ScrapeConfig{scrapeConfigNode, scrapeConfigETCD}, nil
+	scrapeConfigFleet := service.ScrapeConfig{
+		JobName:       "fleet",
+		StaticConfigs: []service.StaticConfig{scFleet},
+	}
+	return []service.ScrapeConfig{scrapeConfigNode, scrapeConfigETCD, scrapeConfigFleet}, nil
 }
 
 // CreateRules creates all rules this plugin is aware of.
