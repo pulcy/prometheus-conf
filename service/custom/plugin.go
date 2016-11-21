@@ -41,12 +41,13 @@ var (
 const (
 	logName         = "custom"
 	defaultEtcdPath = "/pulcy/metrics"
-	defaultEtcdURL  = "http://127.0.0.1:2379" + defaultEtcdPath
 )
 
 type customPlugin struct {
 	log            *logging.Logger
-	EtcdURL        string
+	etcdEndpoints  []string
+	etcdPath       string
+	etcdURL        string // Obsolete
 	CustomLogLevel string
 
 	backend     *etcdBackend
@@ -63,14 +64,16 @@ type customUpdate struct {
 func init() {
 	service.RegisterPlugin("custom", &customPlugin{
 		log:        logging.MustGetLogger(logName),
-		EtcdURL:    defaultEtcdURL,
+		etcdPath:   defaultEtcdPath,
 		rulesCache: make(map[string]string),
 	})
 }
 
 // Configure the command line flags needed by the plugin.
 func (p *customPlugin) Setup(flagSet *pflag.FlagSet) {
-	flagSet.StringVar(&p.EtcdURL, "etcd-url", defaultEtcdURL, "URL of ETCD")
+	flagSet.StringVar(&p.etcdURL, "etcd-url", "", "URL of ETCD")
+	flagSet.StringSliceVar(&p.etcdEndpoints, "etcd-endpoint", nil, "Etcd client endpoints")
+	flagSet.StringVar(&p.etcdPath, "etcd-path", defaultEtcdPath, "Path into etcd namespace")
 	flagSet.StringVar(&p.CustomLogLevel, "custom-log-level", "", "Log level of the custom plugin")
 }
 
@@ -79,14 +82,19 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) 
 	if err := util.SetLogLevel(p.CustomLogLevel, config.LogLevel, logName); err != nil {
 		return maskAny(err)
 	}
-	if p.EtcdURL == "" {
-		return nil
+	if p.etcdURL != "" {
+		etcdUrl, err := url.Parse(p.etcdURL)
+		if err != nil {
+			return maskAny(fmt.Errorf("--etcd-url '%s' is not valid: %#v", p.etcdURL, err))
+		}
+		p.etcdEndpoints = []string{fmt.Sprintf("%s://%s", etcdUrl.Scheme, etcdUrl.Host)}
+		p.etcdPath = etcdUrl.Path
 	}
-	etcdClient, etcdPath, err := newEtcdClient(p.EtcdURL)
+	etcdClient, err := newEtcdClient(p.etcdEndpoints)
 	if err != nil {
 		return maskAny(err)
 	}
-	p.backend, err = newEtcdBackend(etcdClient, etcdPath, p.log)
+	p.backend, err = newEtcdBackend(etcdClient, p.etcdPath, p.log)
 	if err != nil {
 		return maskAny(err)
 	}

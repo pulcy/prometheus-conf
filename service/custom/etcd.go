@@ -14,28 +14,18 @@
 
 package custom
 
-import (
-	"net/url"
-
-	"github.com/coreos/etcd/client"
-)
+import "github.com/coreos/etcd/client"
 
 // newEtcdClient creates a ETCD client from the given URL.
-// On success it returns the new client and the path into the ETCD namespace.
-func newEtcdClient(etcdURL string) (client.Client, string, error) {
-	uri, err := url.Parse(etcdURL)
-	if err != nil {
-		return nil, "", maskAny(err)
-	}
+// On success it returns the new client.
+func newEtcdClient(etcdEndpoints []string) (client.Client, error) {
 	cfg := client.Config{
 		Transport: client.DefaultTransport,
-	}
-	if uri.Host != "" {
-		cfg.Endpoints = append(cfg.Endpoints, "http://"+uri.Host)
+		Endpoints: etcdEndpoints,
 	}
 	c, err := client.New(cfg)
 	if err != nil {
-		return nil, "", maskAny(err)
+		return nil, maskAny(err)
 	}
-	return c, uri.Path, nil
+	return c, nil
 }
