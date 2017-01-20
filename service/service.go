@@ -18,8 +18,10 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +41,8 @@ type ServiceConfig struct {
 	Once                    bool
 	LoopDelay               time.Duration
 	PrometheusContainerName string
+	PrometheusReloadURL     string
+	NodeExporterPort        int
 }
 
 type ServiceDependencies struct {
@@ -197,4 +201,21 @@ func (s *Service) createConfig() (PrometheusConfig, error) {
 // It prevents this until 30 seconds after startup.
 func (s *Service) canReloadPrometheusConfiguration() bool {
 	return time.Since(s.startTime) > reloadPrometheusConfigurationDelay
+}
+
+// reloadPrometheusConfiguration sends a HUP signal to the specified docker container
+// running prometheus to reload the configuration.
+func (s *Service) reloadPrometheusConfiguration() error {
+	if s.PrometheusReloadURL != "" {
+		body := strings.NewReader("{}")
+		if _, err := http.Post(s.PrometheusReloadURL, "application/json", body); err != nil {
+			return maskAny(err)
+		}
+	} else if s.PrometheusContainerName != "" {
+		if err := s.reloadPrometheusConfigurationUsingDocker(); err != nil {
+			return maskAny(err)
+		}
+	}
+	s.Log.Debugf("Cannot reload prometheus due to lack of configuration")
+	return nil
 }

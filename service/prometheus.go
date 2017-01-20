@@ -31,13 +31,22 @@ type GlobalConfig struct {
 }
 
 type ScrapeConfig struct {
-	JobName       string           `yaml:"job_name"`
-	HonorLabels   bool             `yaml:"honor_labels,omitempty"`
-	MetricsPath   string           `yaml:"metrics_path,omitempty"`
-	StaticConfigs StaticConfigList `yaml:"static_configs,omitempty"`
+	JobName           string                 `yaml:"job_name"`
+	HonorLabels       bool                   `yaml:"honor_labels,omitempty"`
+	MetricsPath       string                 `yaml:"metrics_path,omitempty"`
+	Scheme            string                 `yaml:"scheme,omitempty"`
+	StaticConfigs     StaticConfigList       `yaml:"static_configs,omitempty"`
+	KubernetesConfigs KubernetesSDConfigList `yaml:"kubernetes_sd_configs,omitempty"`
+	TLSConfig         *TLSConfig             `yaml:"tls_config,omitempty"`
 }
 
 type ScrapeConfigList []ScrapeConfig
+
+type KubernetesSDConfig struct {
+	Role string `yaml:"role"`
+}
+
+type KubernetesSDConfigList []KubernetesSDConfig
 
 type StaticConfig struct {
 	Targets []string          `yaml:"targets,omitempty"`
@@ -45,6 +54,14 @@ type StaticConfig struct {
 }
 
 type StaticConfigList []StaticConfig
+
+type TLSConfig struct {
+	CAFile             string `yaml:"ca_file,omitempty"`
+	CertFile           string `yaml:"cert_file,omitempty"`
+	KeyFile            string `yaml:"key_file,omitempty"`
+	ServerName         string `yaml:"server_name,omitempty"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify,omitempty"`
+}
 
 func (pc *PrometheusConfig) Sort() {
 	sort.Strings(pc.RuleFiles)

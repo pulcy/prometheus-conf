@@ -36,19 +36,18 @@ var (
 )
 
 const (
-	defaultNodeExporterPort = 9102
-	logName                 = "fleet"
-	maxRecentErrors         = 30
+	logName         = "fleet"
+	maxRecentErrors = 30
 )
 
 type fleetPlugin struct {
-	FleetURL         string
-	FleetLogLevel    string
-	NodeExporterPort int
+	FleetURL      string
+	FleetLogLevel string
 
-	log          *logging.Logger
-	lastUpdate   *fleetUpdate
-	recentErrors int
+	log              *logging.Logger
+	lastUpdate       *fleetUpdate
+	recentErrors     int
+	nodeExporterPort int
 }
 
 type fleetUpdate struct {
@@ -59,9 +58,8 @@ type fleetUpdate struct {
 
 func init() {
 	service.RegisterPlugin("fleet", &fleetPlugin{
-		log:              logging.MustGetLogger(logName),
-		FleetURL:         "",
-		NodeExporterPort: defaultNodeExporterPort,
+		log:      logging.MustGetLogger(logName),
+		FleetURL: "",
 	})
 }
 
@@ -69,7 +67,6 @@ func init() {
 func (p *fleetPlugin) Setup(flagSet *pflag.FlagSet) {
 	flagSet.StringVar(&p.FleetURL, "fleet-url", "", "URL of fleet")
 	flagSet.StringVar(&p.FleetLogLevel, "fleet-log-level", "", "Log level of fleet plugin")
-	flagSet.IntVar(&p.NodeExporterPort, "node-exporter-port", defaultNodeExporterPort, "Port that node_exporters are listening on")
 }
 
 // Start the plugin. Send a value on the given channel to trigger an update of the configuration.
@@ -77,6 +74,7 @@ func (p *fleetPlugin) Start(config service.ServiceConfig, trigger chan string) e
 	if err := util.SetLogLevel(p.FleetLogLevel, config.LogLevel, logName); err != nil {
 		return maskAny(err)
 	}
+	p.nodeExporterPort = config.NodeExporterPort
 	// No custom triggers here, just update once in a while.
 	return nil
 }
@@ -118,7 +116,7 @@ func (p *fleetPlugin) Update() (service.PluginUpdate, error) {
 		p.recentErrors = 0
 		update := &fleetUpdate{
 			log:              p.log,
-			nodeExporterPort: p.NodeExporterPort,
+			nodeExporterPort: p.nodeExporterPort,
 			machines:         machines,
 		}
 		p.lastUpdate = update

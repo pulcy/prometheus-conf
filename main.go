@@ -21,18 +21,19 @@ import (
 	"time"
 
 	"github.com/op/go-logging"
-	"github.com/pulcy/go-terminate"
 	"github.com/spf13/cobra"
 
+	terminate "github.com/pulcy/go-terminate"
 	"github.com/pulcy/prometheus-conf/service"
 	"github.com/pulcy/prometheus-conf/util"
 )
 
 const (
-	projectName       = "prometheus-conf"
-	defaultConfigPath = "./prometheus.yml"
-	defaultLoopDelay  = time.Minute
-	defaultLogLevel   = "info"
+	projectName             = "prometheus-conf"
+	defaultConfigPath       = "./prometheus.yml"
+	defaultLoopDelay        = time.Minute
+	defaultLogLevel         = "info"
+	defaultNodeExporterPort = 9102
 )
 
 var (
@@ -60,6 +61,8 @@ func init() {
 	cmdMain.Flags().BoolVar(&flags.Once, "once", false, "If set, the config will be generated only once")
 	cmdMain.Flags().DurationVar(&flags.LoopDelay, "loop-delay", defaultLoopDelay, "Time to wait before rebuilding the config file")
 	cmdMain.Flags().StringVar(&flags.PrometheusContainerName, "prometheus-container", "", "Name of the container running Prometheus")
+	cmdMain.Flags().StringVar(&flags.PrometheusReloadURL, "prometheus-reload-url", "", "URL to POST to in order to reload the configuration")
+	cmdMain.Flags().IntVar(&flags.NodeExporterPort, "node-exporter-port", defaultNodeExporterPort, "Port that node_exporters are listening on")
 }
 
 func main() {

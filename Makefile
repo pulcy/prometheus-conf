@@ -59,7 +59,8 @@ update-vendor:
 		github.com/pulcy/prometheus-conf-api \
 		github.com/pulcy/registrator-api \
 		github.com/spf13/cobra \
-		github.com/spf13/pflag
+		github.com/spf13/pflag \
+		github.com/YakLabs/k8s-client
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	docker run \

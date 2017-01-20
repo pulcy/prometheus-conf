@@ -19,9 +19,9 @@ import (
 	"github.com/fsouza/go-dockerclient"
 )
 
-// reloadPrometheusConfiguration sends a HUP signal to the specified docker container
+// reloadPrometheusConfigurationUsingDocker sends a HUP signal to the specified docker container
 // running prometheus to reload the configuration.
-func (s *Service) reloadPrometheusConfiguration() error {
+func (s *Service) reloadPrometheusConfigurationUsingDocker() error {
 	if s.PrometheusContainerName == "" {
 		return nil
 	}

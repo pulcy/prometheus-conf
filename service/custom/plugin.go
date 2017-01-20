@@ -90,6 +90,10 @@ func (p *customPlugin) Start(config service.ServiceConfig, trigger chan string) 
 		p.etcdEndpoints = []string{fmt.Sprintf("%s://%s", etcdUrl.Scheme, etcdUrl.Host)}
 		p.etcdPath = etcdUrl.Path
 	}
+	if len(p.etcdEndpoints) == 0 {
+		// ETCD not configured
+		return nil
+	}
 	etcdClient, err := newEtcdClient(p.etcdEndpoints)
 	if err != nil {
 		return maskAny(err)
