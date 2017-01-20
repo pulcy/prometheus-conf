@@ -38,8 +38,9 @@ const (
 )
 
 type k8sPlugin struct {
-	LogLevel      string
-	ETCDTLSConfig service.TLSConfig
+	LogLevel         string
+	ETCDTLSConfig    service.TLSConfig
+	KubeletTLSConfig service.TLSConfig
 
 	log              *logging.Logger
 	client           k8s.Client
@@ -52,7 +53,8 @@ type k8sUpdate struct {
 	log              *logging.Logger
 	nodeExporterPort int
 	nodes            []k8s.Node
-	ETCDTLSConfig    service.TLSConfig
+	etcdTLSConfig    service.TLSConfig
+	kubeletTLSConfig service.TLSConfig
 }
 
 func init() {
@@ -66,6 +68,9 @@ func (p *k8sPlugin) Setup(flagSet *pflag.FlagSet) {
 	flagSet.StringVar(&p.ETCDTLSConfig.CAFile, "kubernetes-etcd-ca-file", "", "CA certificate used by ETCD")
 	flagSet.StringVar(&p.ETCDTLSConfig.CertFile, "kubernetes-etcd-cert-file", "", "Public key file used by ETCD")
 	flagSet.StringVar(&p.ETCDTLSConfig.KeyFile, "kubernetes-etcd-key-file", "", "Private key file used by ETCD")
+	flagSet.StringVar(&p.KubeletTLSConfig.CAFile, "kubelet-ca-file", "", "CA certificate used by Kubelet")
+	flagSet.StringVar(&p.KubeletTLSConfig.CertFile, "kubelet-cert-file", "", "Public key file used by Kubelet")
+	flagSet.StringVar(&p.KubeletTLSConfig.KeyFile, "kubelet-key-file", "", "Private key file used by Kubelet")
 	flagSet.StringVar(&p.LogLevel, "kubernetes-log-level", "", "Log level of kubernetes plugin")
 }
 
@@ -109,7 +114,8 @@ func (p *k8sPlugin) Update() (service.PluginUpdate, error) {
 			log:              p.log,
 			nodeExporterPort: p.nodeExporterPort,
 			nodes:            nodes.Items,
-			ETCDTLSConfig:    p.ETCDTLSConfig,
+			etcdTLSConfig:    p.ETCDTLSConfig,
+			kubeletTLSConfig: p.KubeletTLSConfig,
 		}
 		p.lastUpdate = update
 		return update, nil
@@ -144,33 +150,87 @@ func (p *k8sUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 		JobName:       "etcd",
 		StaticConfigs: []service.StaticConfig{scEtcd},
 	}
-	if p.ETCDTLSConfig.CAFile != "" && p.ETCDTLSConfig.CertFile != "" && p.ETCDTLSConfig.KeyFile != "" {
+	if p.etcdTLSConfig.IsConfigured() {
 		scrapeConfigETCD.Scheme = "https"
 		scrapeConfigETCD.TLSConfig = &service.TLSConfig{
-			CAFile:             p.ETCDTLSConfig.CAFile,
-			CertFile:           p.ETCDTLSConfig.CertFile,
-			KeyFile:            p.ETCDTLSConfig.KeyFile,
+			CAFile:             p.etcdTLSConfig.CAFile,
+			CertFile:           p.etcdTLSConfig.CertFile,
+			KeyFile:            p.etcdTLSConfig.KeyFile,
 			InsecureSkipVerify: true,
 		}
 	}
-	scrapeConfigK8s := service.ScrapeConfig{
-		JobName: "kubernetes",
+	scrapeConfigK8sNodes := service.ScrapeConfig{
+		JobName: "kubernetes-nodes",
 		KubernetesConfigs: []service.KubernetesSDConfig{
 			service.KubernetesSDConfig{
 				Role: "node",
 			},
-			service.KubernetesSDConfig{
-				Role: "service",
+		},
+		RelabelConfigs: []service.RelabelConfig{
+			service.RelabelConfig{
+				Action: "labelmap",
+				Regex:  "__meta_kubernetes_node_label_(.+)",
 			},
-			service.KubernetesSDConfig{
-				Role: "pod",
-			},
+		},
+	}
+	if p.kubeletTLSConfig.IsConfigured() {
+		scrapeConfigK8sNodes.Scheme = "https"
+		scrapeConfigK8sNodes.TLSConfig = &service.TLSConfig{
+			CAFile:             p.kubeletTLSConfig.CAFile,
+			CertFile:           p.kubeletTLSConfig.CertFile,
+			KeyFile:            p.kubeletTLSConfig.KeyFile,
+			InsecureSkipVerify: true,
+		}
+	}
+	scrapeConfigK8sEndpoinds := service.ScrapeConfig{
+		JobName: "kubernetes-endpoints",
+		KubernetesConfigs: []service.KubernetesSDConfig{
 			service.KubernetesSDConfig{
 				Role: "endpoints",
 			},
 		},
+		RelabelConfigs: []service.RelabelConfig{
+			service.RelabelConfig{
+				SourceLabels: []string{"__meta_kubernetes_service_annotation_prometheus_io_scrape"},
+				Action:       "keep",
+				Regex:        "true",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__meta_kubernetes_service_annotation_prometheus_io_scheme"},
+				Action:       "replace",
+				TargetLabel:  "__scheme__",
+				Regex:        "(https?)",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__meta_kubernetes_service_annotation_prometheus_io_path"},
+				Action:       "replace",
+				TargetLabel:  "__metrics_path__",
+				Regex:        "(.+)",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__", "__meta_kubernetes_service_annotation_prometheus_io_port"},
+				Action:       "replace",
+				TargetLabel:  "__address__",
+				Regex:        `(.+)(?::\d+);(\d+)`,
+				Replacement:  "$1:$2",
+			},
+			service.RelabelConfig{
+				Action: "labelmap",
+				Regex:  "__meta_kubernetes_service_label_(.+)",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__meta_kubernetes_namespace"},
+				Action:       "replace",
+				TargetLabel:  "kubernetes_namespace",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__meta_kubernetes_pod_name"},
+				Action:       "replace",
+				TargetLabel:  "kubernetes_pod_name",
+			},
+		},
 	}
-	return []service.ScrapeConfig{scrapeConfigNode, scrapeConfigETCD, scrapeConfigK8s}, nil
+	return []service.ScrapeConfig{scrapeConfigNode, scrapeConfigETCD, scrapeConfigK8sNodes, scrapeConfigK8sEndpoinds}, nil
 }
 
 // CreateRules creates all rules this plugin is aware of.

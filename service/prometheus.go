@@ -38,6 +38,7 @@ type ScrapeConfig struct {
 	StaticConfigs     StaticConfigList       `yaml:"static_configs,omitempty"`
 	KubernetesConfigs KubernetesSDConfigList `yaml:"kubernetes_sd_configs,omitempty"`
 	TLSConfig         *TLSConfig             `yaml:"tls_config,omitempty"`
+	RelabelConfigs    RelabelConfigList      `yaml:"relabel_configs,omitempty"`
 }
 
 type ScrapeConfigList []ScrapeConfig
@@ -62,6 +63,26 @@ type TLSConfig struct {
 	ServerName         string `yaml:"server_name,omitempty"`
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify,omitempty"`
 }
+
+// IsConfigured returns true if there is a non-empty configuration in the given TLSConfig.
+func (t TLSConfig) IsConfigured() bool {
+	if t.CAFile != "" && t.CertFile != "" && t.KeyFile != "" {
+		return true
+	}
+	return false
+}
+
+type RelabelConfig struct {
+	SourceLabels []string `yaml:"source_labels,omitempty"`
+	Separator    string   `yaml:"separator,omitempty"`
+	TargetLabel  string   `yaml:"target_label,omitempty"`
+	Regex        string   `yaml:"regex,omitempty"`
+	Modulus      uint64   `yaml:"modulus,omitempty"`
+	Replacement  string   `yaml:"replacement,omitempty"`
+	Action       string   `yaml:"action,omitempty"`
+}
+
+type RelabelConfigList []RelabelConfig
 
 func (pc *PrometheusConfig) Sort() {
 	sort.Strings(pc.RuleFiles)
