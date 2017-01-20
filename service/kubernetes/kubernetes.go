@@ -15,8 +15,15 @@
 package kubernetes
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
+	"sync"
 
 	"github.com/juju/errgo"
 	"github.com/op/go-logging"
@@ -24,6 +31,7 @@ import (
 
 	k8s "github.com/YakLabs/k8s-client"
 	k8s_http "github.com/YakLabs/k8s-client/http"
+	api "github.com/pulcy/prometheus-conf-api"
 	"github.com/pulcy/prometheus-conf/service"
 	"github.com/pulcy/prometheus-conf/util"
 )
@@ -33,8 +41,9 @@ var (
 )
 
 const (
-	logName         = "kubernetes"
-	maxRecentErrors = 30
+	logName           = "kubernetes"
+	metricsAnnotation = "j2.pulcy.com/metrics"
+	maxRecentErrors   = 30
 )
 
 type k8sPlugin struct {
@@ -53,6 +62,7 @@ type k8sUpdate struct {
 	log              *logging.Logger
 	nodeExporterPort int
 	nodes            []k8s.Node
+	services         []k8s.Service
 	etcdTLSConfig    service.TLSConfig
 	kubeletTLSConfig service.TLSConfig
 }
@@ -84,9 +94,43 @@ func (p *k8sPlugin) Start(config service.ServiceConfig, trigger chan string) err
 	c, err := k8s_http.NewInCluster()
 	if err != nil {
 		p.log.Infof("No kubernetes available: %v", err)
-	} else {
-		p.client = c
+		return nil
 	}
+	p.client = c
+
+	// Watch nodes for changes
+	go func() {
+		for {
+			nodeEvents := make(chan k8s.NodeWatchEvent)
+			go func() {
+				for evt := range nodeEvents {
+					if evt.Type() == k8s.WatchEventTypeAdded || evt.Type() == k8s.WatchEventTypeDeleted {
+						p.log.Debugf("got node event of type %s", evt.Type())
+						trigger <- fmt.Sprintf("node-%s", evt.Type())
+					}
+				}
+			}()
+			if err := p.client.WatchNodes(nil, nodeEvents); err != nil {
+				p.log.Errorf("failed to watch nodes: %#v", err)
+			}
+		}
+	}()
+
+	// Watch services for changes
+	go func() {
+		for {
+			serviceEvents := make(chan k8s.ServiceWatchEvent)
+			go func() {
+				for evt := range serviceEvents {
+					p.log.Debugf("got service event of type %s", evt.Type())
+					trigger <- fmt.Sprintf("service-%s", evt.Type())
+				}
+			}()
+			if err := p.client.WatchServices("", nil, serviceEvents); err != nil {
+				p.log.Errorf("failed to watch services: %#v", err)
+			}
+		}
+	}()
 
 	// No custom triggers here, just update once in a while.
 	return nil
@@ -99,9 +143,19 @@ func (p *k8sPlugin) Update() (service.PluginUpdate, error) {
 
 	// Get nodes
 	p.log.Debugf("fetching kubernetes nodes")
-	nodes, err := p.client.ListNodes(nil)
-	if err != nil {
-		p.log.Warningf("Failed to fetch kubernetes nodes: %#v (using previous ones)", err)
+	nodes, nodesErr := p.client.ListNodes(nil)
+
+	// Get services
+	p.log.Debugf("fetching kubernetes services")
+	services, servicesErr := p.client.ListServices("", nil)
+
+	if nodesErr != nil || servicesErr != nil {
+		if nodesErr != nil {
+			p.log.Warningf("Failed to fetch kubernetes nodes: %#v (using previous ones)", nodesErr)
+		}
+		if servicesErr != nil {
+			p.log.Warningf("Failed to fetch kubernetes services: %#v (using previous ones)", servicesErr)
+		}
 		p.recentErrors++
 		if p.recentErrors > maxRecentErrors {
 			p.log.Warningf("Too many recent kubernetes errors, restarting")
@@ -114,6 +168,7 @@ func (p *k8sPlugin) Update() (service.PluginUpdate, error) {
 			log:              p.log,
 			nodeExporterPort: p.nodeExporterPort,
 			nodes:            nodes.Items,
+			services:         services.Items,
 			etcdTLSConfig:    p.ETCDTLSConfig,
 			kubeletTLSConfig: p.KubeletTLSConfig,
 		}
@@ -292,6 +347,81 @@ func (p *k8sUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 // CreateRules creates all rules this plugin is aware of.
 // The returns string list should contain the content of the various rules.
 func (p *k8sUpdate) CreateRules() ([]string, error) {
-	// No rules here
-	return nil, nil
+	// Build URL list
+	var urls []string
+	for _, svc := range p.services {
+		ann, ok := svc.Annotations[metricsAnnotation]
+		if !ok || ann == "" {
+			continue
+		}
+
+		var metricsRecords []api.MetricsServiceRecord
+		if err := json.Unmarshal([]byte(ann), &metricsRecords); err != nil {
+			p.log.Errorf("Failed to unmarshal metrics annotation in service '%s.%s': %#v", svc.Namespace, svc.Name, err)
+			continue
+		}
+
+		// Get service IP
+		if svc.Spec.Type != k8s.ServiceTypeClusterIP {
+			p.log.Errorf("Cannot put metrics rules in services of type other than ClusterIP ('%s.%s')", svc.Namespace, svc.Name)
+			continue
+		}
+		clusterIP := svc.Spec.ClusterIP
+
+		// Collect URLs
+		for _, m := range metricsRecords {
+			if m.RulesPath == "" {
+				continue
+			}
+
+			u := url.URL{
+				Scheme: "http",
+				Host:   net.JoinHostPort(clusterIP, strconv.Itoa(m.ServicePort)),
+				Path:   m.RulesPath,
+			}
+			urls = append(urls, u.String())
+		}
+	}
+
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	// Fetch rules from URLs
+	rulesChan := make(chan string, len(urls))
+	wg := sync.WaitGroup{}
+	for _, url := range urls {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			p.log.Debugf("fetching rules from %s", url)
+			resp, err := http.Get(url)
+			if err != nil {
+				p.log.Errorf("Failed to fetch rule from '%s': %#v", url, err)
+				return
+			}
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				p.log.Errorf("Failed to fetch rule from '%s': Status %d", url, resp.StatusCode)
+				return
+			}
+			defer resp.Body.Close()
+			raw, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				p.log.Errorf("Failed to read rule from '%s': %#v", url, err)
+				return
+			}
+			rulesChan <- string(raw)
+			p.log.Debugf("done fetching rules from %s", url)
+		}(url)
+	}
+
+	wg.Wait()
+	close(rulesChan)
+	var result []string
+	for rule := range rulesChan {
+		result = append(result, rule)
+	}
+	p.log.Debugf("Found %d rules", len(result))
+
+	return result, nil
 }
