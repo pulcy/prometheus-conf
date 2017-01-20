@@ -145,10 +145,42 @@ func (p *k8sUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 	scrapeConfigNode := service.ScrapeConfig{
 		JobName:       "node",
 		StaticConfigs: []service.StaticConfig{scNode},
+		RelabelConfigs: []service.RelabelConfig{
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__"},
+				Action:       "replace",
+				TargetLabel:  "instance",
+				Regex:        `(.+)(?::)(\d+)`,
+				Replacement:  "$1",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__"},
+				Action:       "replace",
+				TargetLabel:  "port",
+				Regex:        `(.+)(?::)(\d+)`,
+				Replacement:  "$2",
+			},
+		},
 	}
 	scrapeConfigETCD := service.ScrapeConfig{
 		JobName:       "etcd",
 		StaticConfigs: []service.StaticConfig{scEtcd},
+		RelabelConfigs: []service.RelabelConfig{
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__"},
+				Action:       "replace",
+				TargetLabel:  "instance",
+				Regex:        `(.+)(?::)(\d+)`,
+				Replacement:  "$1",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__"},
+				Action:       "replace",
+				TargetLabel:  "port",
+				Regex:        `(.+)(?::)(\d+)`,
+				Replacement:  "$2",
+			},
+		},
 	}
 	if p.etcdTLSConfig.IsConfigured() {
 		scrapeConfigETCD.Scheme = "https"
@@ -227,6 +259,30 @@ func (p *k8sUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 				SourceLabels: []string{"__meta_kubernetes_pod_name"},
 				Action:       "replace",
 				TargetLabel:  "kubernetes_pod_name",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__"},
+				Action:       "replace",
+				TargetLabel:  "instance",
+				Regex:        `(.+)(?::)(\d+)`,
+				Replacement:  "$1",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"__address__"},
+				Action:       "replace",
+				TargetLabel:  "port",
+				Regex:        `(.+)(?::)(\d+)`,
+				Replacement:  "$2",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"j2_job_name"},
+				Action:       "replace",
+				TargetLabel:  "job",
+			},
+			service.RelabelConfig{
+				SourceLabels: []string{"j2_taskgroup_name"},
+				Action:       "replace",
+				TargetLabel:  "taskgroup",
 			},
 		},
 	}
