@@ -147,7 +147,11 @@ func (s *Service) runOnce() error {
 
 // createConfig builds he configuration file (in memory)
 func (s *Service) createConfig() (PrometheusConfig, error) {
-	config := PrometheusConfig{}
+	config := PrometheusConfig{
+		Global: GlobalConfig{
+			ScrapeInterval: "2m",
+		},
+	}
 	allRules := make(map[string]string)
 
 	// Let all plugins create their nodes

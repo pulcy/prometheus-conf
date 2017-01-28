@@ -32,6 +32,7 @@ type GlobalConfig struct {
 
 type ScrapeConfig struct {
 	JobName           string                 `yaml:"job_name"`
+	ScrapeInterval    string                 `yaml:"scrape_interval,omitempty"`
 	HonorLabels       bool                   `yaml:"honor_labels,omitempty"`
 	MetricsPath       string                 `yaml:"metrics_path,omitempty"`
 	Scheme            string                 `yaml:"scheme,omitempty"`

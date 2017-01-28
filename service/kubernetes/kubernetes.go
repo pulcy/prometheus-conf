@@ -222,6 +222,10 @@ func (p *k8sUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 		StaticConfigs: []service.StaticConfig{scEtcd},
 		RelabelConfigs: []service.RelabelConfig{
 			service.RelabelConfig{
+				Action: "labeldrop",
+				Regex:  "etcd_debugging.*",
+			},
+			service.RelabelConfig{
 				SourceLabels: []string{"__address__"},
 				Action:       "replace",
 				TargetLabel:  "instance",
@@ -247,7 +251,8 @@ func (p *k8sUpdate) CreateNodes() ([]service.ScrapeConfig, error) {
 		}
 	}
 	scrapeConfigK8sNodes := service.ScrapeConfig{
-		JobName: "kubernetes-nodes",
+		JobName:        "kubernetes-nodes",
+		ScrapeInterval: "5m",
 		KubernetesConfigs: []service.KubernetesSDConfig{
 			service.KubernetesSDConfig{
 				Role: "node",
